@@ -2,6 +2,7 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import sys
+from terminal_output import print_colored, print_error
 
 
 KEYWORDS = {b"i32": "type", b"mut": "specifier", b"exit": "exit"}
@@ -111,11 +112,11 @@ def main():
     try:
         lines = lex(args.source.read_bytes())
     except (CompileError, OSError) as error:
-        print(error, file=sys.stderr)
+        print_error(error)
         return 1
     for tokens in lines:
         for token in tokens:
-            print(token)
+            print_colored(token, "36")
     return 0
 
 

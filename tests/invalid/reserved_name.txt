@@ -1,0 +1,2 @@
+i32 mut exit{1}
+exit 1
