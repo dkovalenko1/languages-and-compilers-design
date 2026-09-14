@@ -1,0 +1,4 @@
+int x
+x:=5
+exit x
+x:=6

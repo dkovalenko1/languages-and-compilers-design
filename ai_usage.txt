@@ -1,0 +1,54 @@
+AI usage - Practice 1: LLVM by hand, then through the API
+
+I used OpenAI Codex to help me understand the assignment, set up my
+environment, and implement and test the compiler.
+
+Understanding and setup
+I asked for an explanation of LLVM, intermediate representation (IR),
+llc, object files, linking, and the role of _start. I also asked how to
+configure an Ubuntu 24.04 Lima VM with one shared folder and how to use
+separate Python virtual environments on Linux and macOS. Codex helped me
+troubleshoot Python interpreter selection and llvmlite import warnings
+in VS Code.
+
+Task 1
+I ran the handwritten LLVM IR program, reproduced the SSA error by
+assigning to the same IR name twice, and fixed it. I inspected the assembly,
+object file, and executable using the assignment's commands. I shared
+the outputs and my interpretation with Codex. We discussed constant
+folding of 3 + 5 + 1 into 9, symbol addresses, and the startup code added
+during linking.
+
+Task 2
+I started compiler.py using the PDF's skeleton and added argument parsing.
+I asked questions about the builder API, variable storage, the global
+printf format string, argparse, and output-path validation.
+
+I then asked Codex to write the remaining parts of the compiler. It added
+statement recognition, declaration and operand checks, arithmetic and
+exit generation through llvmlite, error reporting, and output-file handling.
+It also created sample inputs, expected outputs/errors, an automated test
+runner, and a README. This was substantial implementation assistance,
+not only an explanation or code review.
+
+Testing and verification
+I tested the compiler and verified its outputs. When I initially ran the
+test suite on macOS, it failed because llc was unavailable there; Codex
+explained that the full tests should run inside Ubuntu. We also clarified
+that the .err files are expected errors used for comparison, rather than
+logs produced by the tests.
+
+Codex separately ran the tests in my Ubuntu VM: all 17 tests passed.
+Successful cases were compiled with llc, linked with clang, executed,
+and checked with lli. Failing cases were checked for the expected error,
+nonzero status, and absence of a newly generated output file. The sample
+program printed "Program exit with result 8".
+
+Implementation choices
+Codex documented additional choices for cases the PDF did not explicitly
+define: support for negative integer literals, rejection of literals
+outside the signed 32-bit range, and rejection of reads before assignment.
+
+The resulting work contains AI-written code and tests. I used the
+explanations, hands-on commands, and output checks to understand and
+verify the result before presenting it.
