@@ -1,6 +1,6 @@
 """Source-positioned syntax tree for the compiler's language."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -31,7 +31,7 @@ class StmtNode(Node):
 
 @dataclass
 class ExprNode(Node):
-    pass
+    type: str | None = field(default=None, init=False, repr=False)
 
 
 @dataclass
@@ -70,6 +70,7 @@ class DeclNode(StmtNode):
 class AssignNode(StmtNode):
     name: str
     value: ExprNode
+    decl: "DeclNode | None" = field(default=None, init=False, repr=False)
 
     def label(self):
         return f"Assign {self.name}"
@@ -114,6 +115,7 @@ class BinOpNode(ExprNode):
 @dataclass
 class VarNode(ExprNode):
     name: str
+    decl: DeclNode | None = field(default=None, init=False, repr=False)
 
     def label(self):
         return f"Var {self.name}"

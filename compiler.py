@@ -9,6 +9,7 @@ import llvmlite.binding as llvm
 
 from lexer import CompileError, lex
 from parser import Parser
+from semantic import SemanticChecker
 from terminal_output import print_error
 
 
@@ -35,7 +36,7 @@ def parse_args():
 
 
 class CodeGen:
-    """Emit IR from a complete tree; source checks use AST positions."""
+    """Emit IR from a checked tree, with no source-language validation."""
 
     def __init__(self):
         self.module = ir.Module(name="practice3")
@@ -52,15 +53,7 @@ class CodeGen:
         self.fmt.linkage = "private"
         self.fmt.global_constant = True
         self.fmt.initializer = ir.Constant(array_type, bytearray(text))
-        self.symbols = {}  # Source name -> (LLVM stack slot, mutable).
-
-    def fail(self, node, message):
-        raise CompileError(node.line, node.column, message)
-
-    def require_declared(self, node):
-        if node.name not in self.symbols:
-            self.fail(node, f"variable '{node.name}' is used before its declaration")
-        return self.symbols[node.name]
+        self.slots = {}  # Declaration identity -> LLVM stack slot.
 
     def visit_program(self, node):
         for statement in node.statements:
@@ -69,19 +62,13 @@ class CodeGen:
         return self.module
 
     def visit_decl(self, node):
-        if node.name in self.symbols:
-            self.fail(node, f"variable '{node.name}' is declared twice")
-        # The initialiser runs before the name enters scope, including x{x}.
         value = node.init.accept(self)
         slot = self.builder.alloca(I32, name=node.name)
         self.builder.store(value, slot)
-        self.symbols[node.name] = (slot, node.mutable)
+        self.slots[id(node)] = slot
 
     def visit_assign(self, node):
-        slot, mutable = self.require_declared(node)
-        if not mutable:
-            self.fail(node, f"cannot assign to '{node.name}': it is not mut")
-        self.builder.store(node.value.accept(self), slot)
+        self.builder.store(node.value.accept(self), self.slots[id(node.decl)])
 
     def visit_exit(self, node):
         value = node.value.accept(self)
@@ -95,19 +82,15 @@ class CodeGen:
         return {"+": self.builder.add, "-": self.builder.sub, "*": self.builder.mul}[node.op](left, right)
 
     def visit_var(self, node):
-        slot, _ = self.require_declared(node)
-        return self.builder.load(slot)
+        return self.builder.load(self.slots[id(node.decl)])
 
     def visit_const(self, node):
-        digits = node.value.lstrip("0") or "0"
-        limit = "2147483647"
-        if len(digits) > len(limit) or (len(digits) == len(limit) and digits > limit):
-            self.fail(node, "integer literal outside signed 32-bit range")
-        return ir.Constant(I32, int(digits))
+        return ir.Constant(I32, int(node.value))
 
 
 def compile_program(source: bytes):
     tree = Parser(lex(source)).parse_program()
+    tree.accept(SemanticChecker())
     return tree.accept(CodeGen())
 
 
@@ -119,6 +102,7 @@ def main():
         if args.ast:
             print(tree.dump())
             return 0
+        tree.accept(SemanticChecker())
         module = tree.accept(CodeGen())
         # Open the output only after the entire tree passed validation.
         args.output.write_text(str(module), encoding="utf-8")
