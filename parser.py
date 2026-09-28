@@ -1,6 +1,6 @@
 """Recursive-descent parser over the lexer's per-line token vectors."""
 
-from ast_nodes import AssignNode, BinOpNode, ConstNode, DeclNode, ExitNode, ProgramNode, VarNode
+from ast_nodes import AssignNode, BinOpNode, BoolNode, ConstNode, DeclNode, ExitNode, ProgramNode, VarNode
 from lexer import CompileError, Token
 
 
@@ -67,7 +67,7 @@ class Parser:
         raise self.error(f"cannot start a statement with '{token.text}'")
 
     def parse_decl(self) -> DeclNode:
-        self.eat()  # i32
+        type_name = self.eat().text
         mutable = self.peek() is not None and self.peek().kind == "specifier"
         if mutable:
             self.eat()
@@ -77,7 +77,7 @@ class Parser:
         self.expect("lbrace", f"variable '{name.text}' needs an initialiser in {{}}")
         init = self.parse_expr()
         self.expect("rbrace", "expected '}' after the initialiser")
-        return DeclNode(name.line, name.column, name.text, mutable, init)
+        return DeclNode(name.line, name.column, name.text, type_name, mutable, init)
 
     def parse_assign(self) -> AssignNode:
         name = self.eat()
@@ -89,6 +89,16 @@ class Parser:
         return ExitNode(keyword.line, keyword.column, self.parse_factor())
 
     def parse_expr(self):
+        node = self.parse_arith()
+        token = self.peek()
+        if token is not None and token.kind in ("eq", "ne"):
+            self.eat()
+            node = BinOpNode(token.line, token.column, token.text, node, self.parse_arith())
+            if (token := self.peek()) is not None and token.kind in ("eq", "ne"):
+                raise self.error("only one comparison is allowed per expression")
+        return node
+
+    def parse_arith(self):
         node = self.parse_term()
         while (token := self.peek()) is not None and token.kind in ("plus", "minus"):
             self.eat()
@@ -112,4 +122,7 @@ class Parser:
         if token.kind == "ident":
             self.eat()
             return VarNode(token.line, token.column, token.text)
+        if token.kind == "boolean":
+            self.eat()
+            return BoolNode(token.line, token.column, token.text == "true")
         raise self.error(f"expected a constant or a variable, got '{token.text}'")

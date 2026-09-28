@@ -52,11 +52,12 @@ class ProgramNode(Node):
 @dataclass
 class DeclNode(StmtNode):
     name: str
+    type_name: str
     mutable: bool
     init: ExprNode
 
     def label(self):
-        return f"Decl {self.name} {'mut' if self.mutable else 'const'}"
+        return f"Decl {self.name} {self.type_name} {'mut' if self.mutable else 'const'}"
 
     def children(self):
         return (self.init,)
@@ -130,3 +131,14 @@ class ConstNode(ExprNode):
 
     def accept(self, visitor):
         return visitor.visit_const(self)
+
+
+@dataclass
+class BoolNode(ExprNode):
+    value: bool
+
+    def label(self):
+        return f"Bool {'true' if self.value else 'false'}"
+
+    def accept(self, visitor):
+        return visitor.visit_bool(self)
