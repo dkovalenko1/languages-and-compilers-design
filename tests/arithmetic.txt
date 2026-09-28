@@ -1,8 +1,0 @@
-int z
-int x
-z:=4
-x:=2*z
-x:=x-3
-x:=x+z
-x:=x*-2
-exit x
