@@ -7,6 +7,7 @@ from llvmlite import ir
 import llvmlite.binding as llvm
 
 from lexer import CompileError, Token, lex
+from parser import Parser
 from terminal_output import print_error
 
 I32, I8 = ir.IntType(32), ir.IntType(8)
@@ -41,9 +42,16 @@ class Statement:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="LLVM Compiler for practice 2")
+    parser.add_argument("--ast", action="store_true", help="Print the syntax tree without writing IR")
     parser.add_argument("source", type=Path, help="Path to the source program")
-    parser.add_argument("output", type=Path, help="Path to the output LLVM IR file")
+    parser.add_argument("output", type=Path, nargs="?", help="Path to the output LLVM IR file")
     args = parser.parse_args()
+    if args.ast:
+        if args.output is not None:
+            parser.error("--ast takes only a source path")
+        return args
+    if args.output is None:
+        parser.error("the output .ll path is required unless --ast is used")
     if args.output.suffix != ".ll":
         parser.error("Output file must have a .ll extension")
     if args.source.resolve() == args.output.resolve():
@@ -161,6 +169,9 @@ def main():
     args = parse_args()
     try:
         source = args.source.read_bytes()
+        if args.ast:
+            print(Parser(lex(source)).parse_program().dump())
+            return 0
         module = compile_program(source)
         # Open the output only after every source line has passed validation.
         args.output.write_text(str(module), encoding="utf-8")
