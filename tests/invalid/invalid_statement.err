@@ -1,1 +1,1 @@
-compilation error: line 1:1: invalid statement
+compilation error: line 1:1: cannot start a statement with 'mut'

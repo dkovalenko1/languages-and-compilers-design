@@ -1,0 +1,26 @@
+Practice 3 AI usage log
+
+Tool: OpenAI Codex (GPT-6) in the Codex desktop app.
+
+User requests that directed the work:
+- Review all practice sheets and the repository, then inspect the new Mac and VM setup.
+- Explain Practice 3, its tasks, requirements, and change from Practice 2.
+- Complete Practice 3 tasks in order with one commit per task, verify them, and do not push.
+
+Use and review:
+- Codex read the supplied Practice 3 PDF and existing Practice 2 lexer, compiler,
+  fixtures, and test runner. It wrote the EBNF grammar, AST classes, recursive-
+  descent parser, AST visitor for LLVM generation, new fixtures, tests, and README.
+- The grammar was first committed for the Practice 2 language, then extended for
+  precedence and chains in Task 4, as requested by the sheet.
+- After moving compilation to the AST, six existing error snapshots differed in
+  wording or end-of-line position. Codex checked the source and updated those
+  snapshots; the new end-of-line position follows the Practice 3 rule.
+- The formerly invalid `1+2*3` fixture became a valid program and was moved to
+  the valid set with its expected output.
+- All code and expected results were checked with the VM test suite. The
+  Practice 3 example was also compiled and run with `lli`; the required AST and
+  parser/code-generation error demonstrations were inspected directly.
+
+No generated LLVM IR text was copied into the compiler. The compiler emits IR
+through llvmlite's builder API and serializes the module with `str(module)`.
