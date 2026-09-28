@@ -1,0 +1,18 @@
+(* Practice 2 grammar, written before the Practice 3 expression extension.
+   The lexer returns one token vector per line. "endline" is the boundary
+   between vectors; "eof" is the end of the final vector. Neither is a
+   stored Token. Blank lines may precede or follow the final exit. *)
+
+program      ::= { blank_line | statement_line } exit_line { blank_line } ;
+blank_line   ::= endline ;
+statement_line ::= statement endline ;
+exit_line    ::= exit_statement ( endline | eof ) ;
+statement    ::= declaration | assignment ;
+declaration  ::= "i32" [ "mut" ] ident "{" value "}" ;
+assignment   ::= ident ":=" value ;
+exit_statement ::= "exit" operand ;
+value        ::= operand [ operator operand ] ;
+operator     ::= "+" | "-" | "*" ;
+operand      ::= number | ident ;
+endline      ::= ? boundary between the lexer's line vectors ? ;
+eof          ::= ? end of input ? ;
