@@ -1,23 +1,29 @@
-# Practice 3 compiler
+# Practice 4 compiler
 
-The hand-written byte lexer, recursive-descent parser, AST, and code-generation
-visitor compile the course language to LLVM IR through `llvmlite.ir`. The
-grammar is in `grammar.ebnf`. Expressions support chains of `+`, `-`, and `*`;
-multiplication has higher precedence, and equal-precedence operators group
-left to right. `exit` still accepts only a constant or variable.
+The hand-written byte lexer and recursive-descent parser build an AST. A
+separate semantic visitor resolves declarations and types every expression
+before the code-generation visitor builds LLVM IR with `llvmlite.ir`. The
+grammar is in `grammar.ebnf`.
+
+Declarations use `i32`, `i64`, or `bool`, and are const unless marked `mut`.
+Arithmetic supports chains of `+`, `-`, and `*`; multiplication binds tighter.
+One `==` or `!=` comparison may follow arithmetic and produces `bool`.
+An `i32` value may widen to `i64`; other implicit conversions are errors.
+`exit` accepts a constant or variable, including a boolean, but no operation.
 
 Use the Ubuntu 24.04 VM from Practice 1, with `llvm`, `clang`, and a Python
 3.10+ virtual environment containing the packages in `requirements.txt`.
 Activate that environment before running the following commands.
 
 ```sh
-python3 compiler.py --ast tests/valid/precedence_simple.txt
-python3 compiler.py tests/valid/practice3_example.txt output.ll
+python3 compiler.py --ast tests/ok/practice4_example.txt
+python3 compiler.py tests/ok/practice4_example.txt output.ll
 lli output.ll
-./full_compiler.sh tests/valid/practice3_example.txt
+./full_compiler.sh tests/ok/practice4_example.txt
 python3 -m unittest discover -s tests -v
 ```
 
-Both runs of the complete example print `Program exit with result 120`.
-The Practice 2 example remains available as `tests/valid/worked_example.txt`
-and prints `Program exit with result 70`.
+Both runs of the complete Practice 4 example print `Program exit with result
+385`. The `tests/ok` and `tests/err` directories contain typed-language
+programs and `.expected` results. Practice 2 and 3 fixtures remain in
+`tests/valid` and `tests/invalid`, and their old outputs still pass.

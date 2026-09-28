@@ -24,3 +24,30 @@ Use and review:
 
 No generated LLVM IR text was copied into the compiler. The compiler emits IR
 through llvmlite's builder API and serializes the module with `str(module)`.
+
+Practice 4 AI usage log
+
+Tool: OpenAI Codex (GPT-6) in the Codex desktop app.
+
+User requests that directed the work:
+- Explain Practice 4 using the supplied practice sheet and Practice 3 code.
+- Branch from Practice 3 without waiting for its PR merge, complete Practice 4
+  with one commit per task, test and verify everything, and do not push.
+
+Use and review:
+- Codex used the supplied Practice 4 PDF and Practice 3 source as the
+  specification. It extended lexer states, the grammar, parser, and AST for
+  types, booleans, and comparisons; authored a separate SemanticChecker;
+  updated LLVM generation to use typed values; and added tests and fixtures.
+- The source-language checks and constant-range checks were moved from the
+  generator to the semantic pass. Tests call that pass without constructing
+  LLVM IR and check that an invalid program never constructs CodeGen.
+- Codex added explicit sext, icmp, and select checks to the IR test. The test
+  for select was adjusted to accept whitespace in llvmlite's serialized IR.
+- The old invalid literal 2147483648 became valid under the new i64 rule, so
+  its fixture was moved to the valid set with its expected output.
+- The old fixtures and new tests were run in the Ubuntu VM. The Practice 4
+  examples were also checked through lli, and their AST and errors inspected.
+
+The compiler still emits instructions through llvmlite.ir and writes IR only
+by serializing the completed module with str(module).
