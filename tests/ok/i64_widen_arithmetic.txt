@@ -1,0 +1,4 @@
+i64 large{3000000000}
+i32 small{2}
+i64 sum{large + small * 3}
+exit sum

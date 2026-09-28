@@ -6,8 +6,10 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from llvmlite import binding as llvm
+from lexer import CompileError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,8 +27,11 @@ class CompilerTests(unittest.TestCase):
         clang = shutil.which("clang")
         if clang is None:
             raise AssertionError("clang is required for end-to-end tests")
-        sources = sorted((FIXTURES / "valid").glob("*.txt"))
-        self.assertGreaterEqual(len(sources), 5)
+        old_sources = sorted((FIXTURES / "valid").glob("*.txt"))
+        new_sources = sorted((FIXTURES / "ok").glob("*.txt"))
+        self.assertGreaterEqual(len(old_sources), 5)
+        self.assertGreaterEqual(len(new_sources), 6)
+        sources = old_sources + new_sources
         for source in sources:
             with self.subTest(program=source.name), tempfile.TemporaryDirectory() as directory:
                 output = Path(directory) / "output.ll"
@@ -42,18 +47,23 @@ class CompilerTests(unittest.TestCase):
                 run = subprocess.run([str(program)], capture_output=True, text=True)
                 self.assertEqual(run.returncode, 0, run.stderr)
                 self.assertEqual(run.stderr, "")
-                self.assertEqual(run.stdout, source.with_suffix(".out").read_text())
+                expected = source.with_suffix(".expected" if source.parent.name == "ok" else ".out")
+                self.assertEqual(run.stdout, expected.read_text())
 
     def test_invalid_programs(self):
-        sources = sorted((FIXTURES / "invalid").glob("*.txt"))
-        self.assertGreaterEqual(len(sources), 5)
+        old_sources = sorted((FIXTURES / "invalid").glob("*.txt"))
+        new_sources = sorted((FIXTURES / "err").glob("*.txt"))
+        self.assertGreaterEqual(len(old_sources), 5)
+        self.assertGreaterEqual(len(new_sources), 6)
+        sources = old_sources + new_sources
         for source in sources:
             with self.subTest(program=source.name), tempfile.TemporaryDirectory() as directory:
                 output = Path(directory) / "output.ll"
                 result = self.compile(source, output)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(result.stdout, "")
-                self.assertEqual(result.stderr, source.with_suffix(".err").read_text())
+                expected = source.with_suffix(".expected" if source.parent.name == "err" else ".err")
+                self.assertEqual(result.stderr, expected.read_text())
                 self.assertFalse(output.exists(), "Invalid input must not create an IR file")
 
     def test_error_preserves_existing_output(self):
@@ -63,6 +73,24 @@ class CompilerTests(unittest.TestCase):
             result = self.compile(FIXTURES / "invalid" / "const_assignment.txt", output)
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(output.read_text(), "existing output\n")
+
+    def test_semantic_error_precedes_codegen(self):
+        from compiler import compile_program
+
+        with patch("compiler.CodeGen") as generator:
+            with self.assertRaises(CompileError):
+                compile_program(b"bool b{1}\nexit b")
+            generator.assert_not_called()
+
+    def test_typed_ir_includes_widening_comparison_and_bool_select(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output.ll"
+            program = FIXTURES / "ok" / "mixed_integer_compare.txt"
+            self.assertEqual(self.compile(program, output).returncode, 0)
+            ir_text = output.read_text()
+            self.assertIn("sext i32", ir_text)
+            self.assertIn("icmp eq i64", ir_text)
+            self.assertRegex(ir_text, r"select\s+i1")
 
 
 if __name__ == "__main__":

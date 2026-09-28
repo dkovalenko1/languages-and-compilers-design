@@ -1,6 +1,6 @@
 """Source-positioned syntax tree for the compiler's language."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -31,7 +31,7 @@ class StmtNode(Node):
 
 @dataclass
 class ExprNode(Node):
-    pass
+    type: str | None = field(default=None, init=False, repr=False)
 
 
 @dataclass
@@ -52,11 +52,12 @@ class ProgramNode(Node):
 @dataclass
 class DeclNode(StmtNode):
     name: str
+    type_name: str
     mutable: bool
     init: ExprNode
 
     def label(self):
-        return f"Decl {self.name} {'mut' if self.mutable else 'const'}"
+        return f"Decl {self.name} {self.type_name} {'mut' if self.mutable else 'const'}"
 
     def children(self):
         return (self.init,)
@@ -69,6 +70,7 @@ class DeclNode(StmtNode):
 class AssignNode(StmtNode):
     name: str
     value: ExprNode
+    decl: "DeclNode | None" = field(default=None, init=False, repr=False)
 
     def label(self):
         return f"Assign {self.name}"
@@ -113,6 +115,7 @@ class BinOpNode(ExprNode):
 @dataclass
 class VarNode(ExprNode):
     name: str
+    decl: DeclNode | None = field(default=None, init=False, repr=False)
 
     def label(self):
         return f"Var {self.name}"
@@ -130,3 +133,14 @@ class ConstNode(ExprNode):
 
     def accept(self, visitor):
         return visitor.visit_const(self)
+
+
+@dataclass
+class BoolNode(ExprNode):
+    value: bool
+
+    def label(self):
+        return f"Bool {'true' if self.value else 'false'}"
+
+    def accept(self, visitor):
+        return visitor.visit_bool(self)

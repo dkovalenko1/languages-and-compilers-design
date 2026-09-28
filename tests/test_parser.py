@@ -20,10 +20,10 @@ class ParserTests(unittest.TestCase):
         source = b"i32 x{0}\ni32 mut y{10}\ni32 z{2+5}\ni32 mut t{x+10}\nt:=t*z\nexit t\n"
         self.assertEqual(self.parse(source).dump(), "\n".join([
             "Program",
-            "  Decl x const", "    Const 0",
-            "  Decl y mut", "    Const 10",
-            "  Decl z const", "    BinOp +", "      Const 2", "      Const 5",
-            "  Decl t mut", "    BinOp +", "      Var x", "      Const 10",
+            "  Decl x i32 const", "    Const 0",
+            "  Decl y i32 mut", "    Const 10",
+            "  Decl z i32 const", "    BinOp +", "      Const 2", "      Const 5",
+            "  Decl t i32 mut", "    BinOp +", "      Var x", "      Const 10",
             "  Assign t", "    BinOp *", "      Var t", "      Var z",
             "  Exit", "    Var t",
         ]))
@@ -32,13 +32,13 @@ class ParserTests(unittest.TestCase):
         source = b"i32 x{2 + 3 * 4}\ni32 mut a{10 - 3 - 2}\nexit x\n"
         self.assertEqual(self.parse(source).dump(), "\n".join([
             "Program",
-            "  Decl x const",
+            "  Decl x i32 const",
             "    BinOp +",
             "      Const 2",
             "      BinOp *",
             "        Const 3",
             "        Const 4",
-            "  Decl a mut",
+            "  Decl a i32 mut",
             "    BinOp -",
             "      BinOp -",
             "        Const 10",
@@ -47,6 +47,25 @@ class ParserTests(unittest.TestCase):
             "  Exit",
             "    Var x",
         ]))
+
+    def test_types_booleans_and_comparison_precedence(self):
+        source = b"i64 x{10}\nbool b{true}\nbool c{x * 2 != x + 5}\nexit b\n"
+        self.assertEqual(self.parse(source).dump(), "\n".join([
+            "Program",
+            "  Decl x i64 const", "    Const 10",
+            "  Decl b bool const", "    Bool true",
+            "  Decl c bool const",
+            "    BinOp !=",
+            "      BinOp *", "        Var x", "        Const 2",
+            "      BinOp +", "        Var x", "        Const 5",
+            "  Exit", "    Var b",
+        ]))
+
+    def test_second_comparison_is_rejected(self):
+        with self.assertRaises(CompileError) as caught:
+            self.parse(b"bool b{1 == 1 != 0}\nexit b")
+        self.assertEqual(str(caught.exception),
+                         "compilation error: line 1:15: only one comparison is allowed per expression")
 
     def test_parser_errors_and_columns(self):
         cases = [

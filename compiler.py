@@ -9,14 +9,16 @@ import llvmlite.binding as llvm
 
 from lexer import CompileError, lex
 from parser import Parser
+from semantic import SemanticChecker
 from terminal_output import print_error
 
 
-I32, I8 = ir.IntType(32), ir.IntType(8)
+I1, I8, I32, I64 = ir.IntType(1), ir.IntType(8), ir.IntType(32), ir.IntType(64)
+TYPES = {"bool": I1, "i32": I32, "i64": I64}
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="LLVM Compiler for practice 3")
+    parser = argparse.ArgumentParser(description="LLVM Compiler for practice 4")
     parser.add_argument("--ast", action="store_true", help="Print the syntax tree without writing IR")
     parser.add_argument("source", type=Path, help="Path to the source program")
     parser.add_argument("output", type=Path, nargs="?", help="Path to the output LLVM IR file")
@@ -35,10 +37,10 @@ def parse_args():
 
 
 class CodeGen:
-    """Emit IR from a complete tree; source checks use AST positions."""
+    """Emit IR from a checked tree, with no source-language validation."""
 
     def __init__(self):
-        self.module = ir.Module(name="practice3")
+        self.module = ir.Module(name="practice4")
         self.module.triple = llvm.get_default_triple()
         main = ir.Function(self.module, ir.FunctionType(I32, []), name="main")
         self.builder = ir.IRBuilder(main.append_basic_block("entry"))
@@ -46,21 +48,24 @@ class CodeGen:
             self.module, ir.FunctionType(I32, [ir.PointerType(I8)], var_arg=True),
             name="printf",
         )
-        text = b"Program exit with result %d\n\0"
+        self.int_fmt = self.global_string("int_fmt", b"Program exit with result %lld\n\0")
+        self.bool_fmt = self.global_string("bool_fmt", b"Program exit with result %s\n\0")
+        self.true_text = self.global_string("bool_true", b"true\0")
+        self.false_text = self.global_string("bool_false", b"false\0")
+        self.slots = {}  # Declaration identity -> LLVM stack slot.
+
+    def global_string(self, name: str, text: bytes):
         array_type = ir.ArrayType(I8, len(text))
-        self.fmt = ir.GlobalVariable(self.module, array_type, name="fmt")
-        self.fmt.linkage = "private"
-        self.fmt.global_constant = True
-        self.fmt.initializer = ir.Constant(array_type, bytearray(text))
-        self.symbols = {}  # Source name -> (LLVM stack slot, mutable).
+        variable = ir.GlobalVariable(self.module, array_type, name=name)
+        variable.linkage = "private"
+        variable.global_constant = True
+        variable.initializer = ir.Constant(array_type, bytearray(text))
+        return variable
 
-    def fail(self, node, message):
-        raise CompileError(node.line, node.column, message)
-
-    def require_declared(self, node):
-        if node.name not in self.symbols:
-            self.fail(node, f"variable '{node.name}' is used before its declaration")
-        return self.symbols[node.name]
+    def coerce(self, value, have: str, want: str):
+        if have == "i32" and want == "i64":
+            return self.builder.sext(value, I64, name="wide")
+        return value
 
     def visit_program(self, node):
         for statement in node.statements:
@@ -69,45 +74,60 @@ class CodeGen:
         return self.module
 
     def visit_decl(self, node):
-        if node.name in self.symbols:
-            self.fail(node, f"variable '{node.name}' is declared twice")
-        # The initialiser runs before the name enters scope, including x{x}.
         value = node.init.accept(self)
-        slot = self.builder.alloca(I32, name=node.name)
+        value = self.coerce(value, node.init.type, node.type_name)
+        slot = self.builder.alloca(TYPES[node.type_name], name=node.name)
         self.builder.store(value, slot)
-        self.symbols[node.name] = (slot, node.mutable)
+        self.slots[id(node)] = slot
 
     def visit_assign(self, node):
-        slot, mutable = self.require_declared(node)
-        if not mutable:
-            self.fail(node, f"cannot assign to '{node.name}': it is not mut")
-        self.builder.store(node.value.accept(self), slot)
+        value = node.value.accept(self)
+        value = self.coerce(value, node.value.type, node.decl.type_name)
+        self.builder.store(value, self.slots[id(node.decl)])
 
     def visit_exit(self, node):
         value = node.value.accept(self)
-        pointer = self.builder.bitcast(self.fmt, ir.PointerType(I8))
-        self.builder.call(self.printf, [pointer, value])
+        if node.value.type == "bool":
+            true_pointer = self.builder.bitcast(self.true_text, ir.PointerType(I8))
+            false_pointer = self.builder.bitcast(self.false_text, ir.PointerType(I8))
+            text = self.builder.select(value, true_pointer, false_pointer)
+            fmt = self.builder.bitcast(self.bool_fmt, ir.PointerType(I8))
+            self.builder.call(self.printf, [fmt, text])
+        else:
+            value = self.coerce(value, node.value.type, "i64")
+            fmt = self.builder.bitcast(self.int_fmt, ir.PointerType(I8))
+            self.builder.call(self.printf, [fmt, value])
         self.builder.ret(ir.Constant(I32, 0))
 
     def visit_binop(self, node):
         left = node.left.accept(self)
         right = node.right.accept(self)
-        return {"+": self.builder.add, "-": self.builder.sub, "*": self.builder.mul}[node.op](left, right)
+        if node.op in ("+", "-", "*"):
+            operand_type = node.type
+            left = self.coerce(left, node.left.type, operand_type)
+            right = self.coerce(right, node.right.type, operand_type)
+            return {"+": self.builder.add, "-": self.builder.sub, "*": self.builder.mul}[node.op](left, right)
+        if node.left.type == "bool":
+            operand_type = "bool"
+        else:
+            operand_type = "i64" if "i64" in (node.left.type, node.right.type) else "i32"
+        left = self.coerce(left, node.left.type, operand_type)
+        right = self.coerce(right, node.right.type, operand_type)
+        return self.builder.icmp_signed(node.op, left, right)
 
     def visit_var(self, node):
-        slot, _ = self.require_declared(node)
-        return self.builder.load(slot)
+        return self.builder.load(self.slots[id(node.decl)])
 
     def visit_const(self, node):
-        digits = node.value.lstrip("0") or "0"
-        limit = "2147483647"
-        if len(digits) > len(limit) or (len(digits) == len(limit) and digits > limit):
-            self.fail(node, "integer literal outside signed 32-bit range")
-        return ir.Constant(I32, int(digits))
+        return ir.Constant(TYPES[node.type], int(node.value.lstrip("0") or "0"))
+
+    def visit_bool(self, node):
+        return ir.Constant(I1, int(node.value))
 
 
 def compile_program(source: bytes):
     tree = Parser(lex(source)).parse_program()
+    tree.accept(SemanticChecker())
     return tree.accept(CodeGen())
 
 
@@ -119,6 +139,7 @@ def main():
         if args.ast:
             print(tree.dump())
             return 0
+        tree.accept(SemanticChecker())
         module = tree.accept(CodeGen())
         # Open the output only after the entire tree passed validation.
         args.output.write_text(str(module), encoding="utf-8")
