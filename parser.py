@@ -75,28 +75,34 @@ class Parser:
         if self.peek() is None:
             raise self.error(f"variable '{name.text}' needs an initialiser in {{}}", name)
         self.expect("lbrace", f"variable '{name.text}' needs an initialiser in {{}}")
-        init = self.parse_value()
+        init = self.parse_expr()
         self.expect("rbrace", "expected '}' after the initialiser")
         return DeclNode(name.line, name.column, name.text, mutable, init)
 
     def parse_assign(self) -> AssignNode:
         name = self.eat()
         self.expect("assign", f"expected ':=' after '{name.text}'")
-        return AssignNode(name.line, name.column, name.text, self.parse_value())
+        return AssignNode(name.line, name.column, name.text, self.parse_expr())
 
     def parse_exit(self) -> ExitNode:
         keyword = self.eat()
-        return ExitNode(keyword.line, keyword.column, self.parse_operand())
+        return ExitNode(keyword.line, keyword.column, self.parse_factor())
 
-    def parse_value(self):
-        left = self.parse_operand()
-        token = self.peek()
-        if token is not None and token.kind in ("plus", "minus", "star"):
+    def parse_expr(self):
+        node = self.parse_term()
+        while (token := self.peek()) is not None and token.kind in ("plus", "minus"):
             self.eat()
-            return BinOpNode(token.line, token.column, token.text, left, self.parse_operand())
-        return left
+            node = BinOpNode(token.line, token.column, token.text, node, self.parse_term())
+        return node
 
-    def parse_operand(self):
+    def parse_term(self):
+        node = self.parse_factor()
+        while (token := self.peek()) is not None and token.kind == "star":
+            self.eat()
+            node = BinOpNode(token.line, token.column, token.text, node, self.parse_factor())
+        return node
+
+    def parse_factor(self):
         token = self.peek()
         if token is None:
             raise self.error("expected a constant or a variable, found end of line")

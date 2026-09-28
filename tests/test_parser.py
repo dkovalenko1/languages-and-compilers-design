@@ -28,6 +28,26 @@ class ParserTests(unittest.TestCase):
             "  Exit", "    Var t",
         ]))
 
+    def test_precedence_and_left_associativity_in_dump(self):
+        source = b"i32 x{2 + 3 * 4}\ni32 mut a{10 - 3 - 2}\nexit x\n"
+        self.assertEqual(self.parse(source).dump(), "\n".join([
+            "Program",
+            "  Decl x const",
+            "    BinOp +",
+            "      Const 2",
+            "      BinOp *",
+            "        Const 3",
+            "        Const 4",
+            "  Decl a mut",
+            "    BinOp -",
+            "      BinOp -",
+            "        Const 10",
+            "        Const 3",
+            "      Const 2",
+            "  Exit",
+            "    Var x",
+        ]))
+
     def test_parser_errors_and_columns(self):
         cases = [
             (b"+\nexit 0", "line 1:1: cannot start a statement with '+'"),
