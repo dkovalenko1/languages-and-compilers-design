@@ -2,6 +2,7 @@
 
 import unittest
 
+import src_path  # noqa: F401  (puts src/ on sys.path)
 from lexer import CompileError, lex
 from parser import Parser
 from semantic import SemanticChecker

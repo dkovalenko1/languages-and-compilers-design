@@ -12,7 +12,7 @@ build_dir="$(mktemp -d)"
 trap 'rm -rf -- "$build_dir"' EXIT
 
 # Uses the activated Python environment, or an explicit PYTHON executable.
-"${PYTHON:-python3}" -B "$script_dir/compiler.py" "$1" "$build_dir/output.ll"
+"${PYTHON:-python3}" -B "$script_dir/src/compiler.py" "$1" "$build_dir/output.ll"
 
 llc -filetype=obj -relocation-model=pic "$build_dir/output.ll" -o "$build_dir/output.o"
 clang -fPIE "$build_dir/output.o" -o "$build_dir/program"

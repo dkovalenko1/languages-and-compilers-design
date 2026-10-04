@@ -16,12 +16,16 @@ Use the Ubuntu 24.04 VM from Practice 1, with `llvm`, `clang`, and a Python
 Activate that environment before running the following commands.
 
 ```sh
-python3 compiler.py --ast tests/ok/practice4_example.txt
-python3 compiler.py tests/ok/practice4_example.txt output.ll
+python3 src/compiler.py --ast tests/ok/practice4_example.txt
+python3 src/compiler.py tests/ok/practice4_example.txt output.ll
 lli output.ll
 ./full_compiler.sh tests/ok/practice4_example.txt
-python3 -m unittest discover -s tests -v
+python3 check.py
 ```
+
+`check.py` compiles every fixture, runs the valid ones with `lli`, compares
+stdout, `--ast` and error messages with the files next to them, runs the unit
+tests in `tests/`, and prints one table row per program.
 
 Both runs of the complete Practice 4 example print `Program exit with result
 385`. The `tests/ok` and `tests/err` directories contain typed-language

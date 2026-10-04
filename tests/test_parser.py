@@ -5,6 +5,7 @@ import subprocess
 import sys
 import unittest
 
+import src_path  # noqa: F401  (puts src/ on sys.path)
 from lexer import CompileError, lex
 from parser import Parser
 
@@ -86,7 +87,7 @@ class ParserTests(unittest.TestCase):
     def test_ast_cli_does_not_write_ir(self):
         source = ROOT / "tests" / "valid" / "worked_example.txt"
         run = subprocess.run(
-            [sys.executable, "-B", str(ROOT / "compiler.py"), "--ast", str(source)],
+            [sys.executable, "-B", str(ROOT / "src" / "compiler.py"), "--ast", str(source)],
             capture_output=True, text=True,
         )
         self.assertEqual(run.returncode, 0, run.stderr)

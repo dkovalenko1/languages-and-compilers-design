@@ -1,5 +1,6 @@
 import unittest
 
+import src_path  # noqa: F401  (puts src/ on sys.path)
 from lexer import CompileError, lex
 
 

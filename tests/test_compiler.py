@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import src_path  # noqa: F401  (puts src/ on sys.path)
 from llvmlite import binding as llvm
 from lexer import CompileError
 
@@ -19,7 +20,7 @@ FIXTURES = ROOT / "tests"
 class CompilerTests(unittest.TestCase):
     def compile(self, source, output):
         return subprocess.run(
-            [sys.executable, "-B", str(ROOT / "compiler.py"), str(source), str(output)],
+            [sys.executable, "-B", str(ROOT / "src" / "compiler.py"), str(source), str(output)],
             capture_output=True, text=True,
         )
 
