@@ -1,6 +1,7 @@
 """Compile fixtures through the CLI, verify IR, and run native programs."""
 
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -92,6 +93,58 @@ class CompilerTests(unittest.TestCase):
             self.assertIn("sext i32", ir_text)
             self.assertIn("icmp eq i64", ir_text)
             self.assertRegex(ir_text, r"select\s+i1")
+
+    def compiled_ir(self, program):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output.ll"
+            result = self.compile(program, output)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return output.read_text()
+
+    def test_every_block_ends_once_and_slots_live_in_entry(self):
+        terminators = {"br", "ret"}
+        for source in sorted((FIXTURES / "ok").glob("*.txt")):
+            with self.subTest(program=source.name):
+                module = llvm.parse_assembly(self.compiled_ir(source))
+                module.verify()
+                main = module.get_function("main")
+                for index, block in enumerate(main.blocks):
+                    opcodes = [instruction.opcode for instruction in block.instructions]
+                    self.assertIn(opcodes[-1], terminators, block.name)
+                    self.assertEqual(sum(op in terminators for op in opcodes), 1, block.name)
+                    if index > 0:
+                        self.assertNotIn("alloca", opcodes, block.name)
+
+    def test_nested_ifs_become_then_and_merge_blocks(self):
+        module = llvm.parse_assembly(self.compiled_ir(FIXTURES / "ok" / "scope_warm-up.txt"))
+        blocks = list(module.get_function("main").blocks)
+        self.assertEqual([block.name for block in blocks],
+                         ["entry", "then", "merge", "then.1", "merge.1"])
+        allocas = [re.search(r"alloca (\w+)", str(i)).group(1)
+                   for i in blocks[0].instructions if i.opcode == "alloca"]
+        self.assertEqual(allocas, ["i32", "i1", "i64"])  # Three x, three slots.
+        last = [list(block.instructions)[-1] for block in blocks]
+        self.assertRegex(str(last[0]), r'br i1 (1|true), label %"?then"?, label %"?merge"?')
+        self.assertRegex(str(last[1]), r'br i1 %\S+, label %"?then\.1"?, label %"?merge\.1"?')
+        self.assertEqual([i.opcode for i in last[2:]], ["ret", "ret", "ret"])
+
+    def test_if_else_branches_on_the_condition(self):
+        ir_text = self.compiled_ir(FIXTURES / "ok" / "if-else_example.txt")
+        self.assertRegex(ir_text, r'br i1 %"?\.?\w+"?, label %"then", label %"else"')
+        self.assertEqual(ir_text.count('br label %"merge"'), 2)
+
+    @unittest.skipUnless(shutil.which("opt"), "opt is required for the mem2reg check")
+    def test_mem2reg_turns_both_arm_stores_into_a_phi(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output.ll"
+            self.assertEqual(self.compile(FIXTURES / "ok" / "if-else_assign-both-arms.txt", output)
+                             .returncode, 0)
+            promoted = subprocess.run(["opt", "-passes=mem2reg", "-S", str(output)],
+                                      capture_output=True, text=True)
+        self.assertEqual(promoted.returncode, 0, promoted.stderr)
+        self.assertIn("%r.0 = phi i32 [ 1, %then ], [ 2, %else ]", promoted.stdout)
+        self.assertNotIn("alloca", promoted.stdout)
+        self.assertNotIn("store", promoted.stdout)
 
 
 if __name__ == "__main__":
