@@ -5,7 +5,11 @@ import sys
 from terminal_output import print_colored, print_error
 
 
-KEYWORDS = {b"i32": "type", b"mut": "specifier", b"exit": "exit"}
+KEYWORDS = {
+    b"i32": "type", b"i64": "type", b"bool": "type",
+    b"mut": "specifier", b"exit": "exit",
+    b"true": "boolean", b"false": "boolean",
+}
 SINGLE_BYTE = {
     ord("{"): "lbrace", ord("}"): "rbrace",
     ord("+"): "plus", ord("-"): "minus", ord("*"): "star",
@@ -65,6 +69,10 @@ def lex(data: bytes) -> list[list[Token]]:
                 start, start_line, start_col = i, line, col
             elif b == ord(":"):
                 state, start_line, start_col = "ASSIGN", line, col
+            elif b == ord("="):
+                state, start_line, start_col = "EQUAL", line, col
+            elif b == ord("!"):
+                state, start_line, start_col = "NOT_EQUAL", line, col
             elif b in SINGLE_BYTE:
                 tokens.append(Token(SINGLE_BYTE[b], chr(b), line, col))
                 if b == ord("{"):
@@ -98,6 +106,16 @@ def lex(data: bytes) -> list[list[Token]]:
                 raise CompileError(start_line, start_col, "':' must be followed by '='")
             tokens.append(Token("assign", ":=", start_line, start_col))
             state = "START"
+        elif state == "EQUAL":
+            if b != ord("="):
+                raise CompileError(start_line, start_col, "expected '==' (a single '=' is not an operator)")
+            tokens.append(Token("eq", "==", start_line, start_col))
+            state = "START"
+        elif state == "NOT_EQUAL":
+            if b != ord("="):
+                raise CompileError(start_line, start_col, "expected '!=' (a single '!' is not an operator)")
+            tokens.append(Token("ne", "!=", start_line, start_col))
+            state = "START"
         i += 1
         col += 1
     if tokens:
@@ -106,7 +124,7 @@ def lex(data: bytes) -> list[list[Token]]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Print the Practice 2 lexer tokens")
+    parser = argparse.ArgumentParser(description="Print the compiler lexer tokens")
     parser.add_argument("source", type=Path)
     args = parser.parse_args()
     try:

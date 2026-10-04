@@ -1,0 +1,4 @@
+bool mut flag{false}
+bool ready{true}
+flag := ready
+exit flag

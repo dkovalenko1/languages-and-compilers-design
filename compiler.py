@@ -1,49 +1,34 @@
+"""Compile the parsed language through an AST walk and llvmlite's builder."""
+
 import argparse
 from pathlib import Path
 import sys
-from typing import NoReturn
 
 from llvmlite import ir
 import llvmlite.binding as llvm
 
-from lexer import CompileError, Token, lex
+from lexer import CompileError, lex
+from parser import Parser
+from semantic import SemanticChecker
 from terminal_output import print_error
 
-I32, I8 = ir.IntType(32), ir.IntType(8)
 
-
-def fail(token: Token, message: str) -> NoReturn:
-    raise CompileError(token.line, token.column, message)
-
-
-class Statement:
-    """A cursor over one line of tokens; never reads source text."""
-
-    def __init__(self, tokens: list[Token]):
-        self.tokens = tokens
-        self.index = 0
-
-    def peek(self) -> Token | None:
-        return self.tokens[self.index] if self.index < len(self.tokens) else None
-
-    def take(self, kind: str, message: str) -> Token:
-        token = self.peek()
-        if token is None or token.kind != kind:
-            fail(token or self.tokens[-1], message)
-        self.index += 1
-        return token
-
-    def finish(self):
-        token = self.peek()
-        if token is not None:
-            fail(token, "extra tokens on a line")
+I1, I8, I32, I64 = ir.IntType(1), ir.IntType(8), ir.IntType(32), ir.IntType(64)
+TYPES = {"bool": I1, "i32": I32, "i64": I64}
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="LLVM Compiler for practice 2")
+    parser = argparse.ArgumentParser(description="LLVM Compiler for practice 4")
+    parser.add_argument("--ast", action="store_true", help="Print the syntax tree without writing IR")
     parser.add_argument("source", type=Path, help="Path to the source program")
-    parser.add_argument("output", type=Path, help="Path to the output LLVM IR file")
+    parser.add_argument("output", type=Path, nargs="?", help="Path to the output LLVM IR file")
     args = parser.parse_args()
+    if args.ast:
+        if args.output is not None:
+            parser.error("--ast takes only a source path")
+        return args
+    if args.output is None:
+        parser.error("the output .ll path is required unless --ast is used")
     if args.output.suffix != ".ll":
         parser.error("Output file must have a .ll extension")
     if args.source.resolve() == args.output.resolve():
@@ -51,118 +36,112 @@ def parse_args():
     return args
 
 
-def compile_program(source: bytes):
-    lines = lex(source)
-    module = ir.Module(name="practice2")
-    module.triple = llvm.get_default_triple()
-    main = ir.Function(module, ir.FunctionType(I32, []), name="main")
-    builder = ir.IRBuilder(main.append_basic_block("entry"))
-    printf = ir.Function(
-        module, ir.FunctionType(I32, [ir.PointerType(I8)], var_arg=True),
-        name="printf",
-    )
-    text = b"Program exit with result %d\n\0"
-    array_type = ir.ArrayType(I8, len(text))
-    fmt = ir.GlobalVariable(module, array_type, name="fmt")
-    fmt.linkage = "private"
-    fmt.global_constant = True
-    fmt.initializer = ir.Constant(array_type, bytearray(text))  # pyright: ignore[reportAttributeAccessIssue]
+class CodeGen:
+    """Emit IR from a checked tree, with no source-language validation."""
 
-    symbols = {}  # Source name -> (LLVM stack slot, mutable).
-    exited = False
+    def __init__(self):
+        self.module = ir.Module(name="practice4")
+        self.module.triple = llvm.get_default_triple()
+        main = ir.Function(self.module, ir.FunctionType(I32, []), name="main")
+        self.builder = ir.IRBuilder(main.append_basic_block("entry"))
+        self.printf = ir.Function(
+            self.module, ir.FunctionType(I32, [ir.PointerType(I8)], var_arg=True),
+            name="printf",
+        )
+        self.int_fmt = self.global_string("int_fmt", b"Program exit with result %lld\n\0")
+        self.bool_fmt = self.global_string("bool_fmt", b"Program exit with result %s\n\0")
+        self.true_text = self.global_string("bool_true", b"true\0")
+        self.false_text = self.global_string("bool_false", b"false\0")
+        self.slots = {}  # Declaration identity -> LLVM stack slot.
 
-    def require_declared(token):
-        if token.text not in symbols:
-            fail(token, f"variable '{token.text}' is used before its declaration")
-        return symbols[token.text]
+    def global_string(self, name: str, text: bytes):
+        array_type = ir.ArrayType(I8, len(text))
+        variable = ir.GlobalVariable(self.module, array_type, name=name)
+        variable.linkage = "private"
+        variable.global_constant = True
+        variable.initializer = ir.Constant(array_type, bytearray(text))
+        return variable
 
-    def operand_value(statement: Statement):
-        token = statement.peek()
-        if token is None or token.kind not in ("number", "ident"):
-            fail(token or statement.tokens[-1], "expected a constant or variable")
-        statement.index += 1
-        if token.kind == "number":
-            # Compare strings before int() to handle arbitrarily long literals.
-            digits = token.text.lstrip("0") or "0"
-            limit = "2147483647"
-            if len(digits) > len(limit) or (len(digits) == len(limit) and digits > limit):
-                fail(token, "integer literal outside signed 32-bit range")
-            return ir.Constant(I32, int(digits))
-        slot, _ = require_declared(token)
-        return builder.load(slot)
-
-    def expression(statement):
-        value = operand_value(statement)
-        operator = statement.peek()
-        operations = {"plus": builder.add, "minus": builder.sub, "star": builder.mul}
-        if operator is not None and operator.kind in operations:
-            statement.index += 1
-            value = operations[operator.kind](value, operand_value(statement))
+    def coerce(self, value, have: str, want: str):
+        if have == "i32" and want == "i64":
+            return self.builder.sext(value, I64, name="wide")
         return value
 
-    for tokens in lines:
-        if not tokens:
-            continue
-        statement = Statement(tokens)
-        first = tokens[0]
-        if exited:
-            fail(first, "exit must be the last statement")
+    def visit_program(self, node):
+        for statement in node.statements:
+            statement.accept(self)
+        node.exit.accept(self)
+        return self.module
 
-        if first.kind == "type":
-            statement.index += 1
-            specifier = statement.peek()
-            mutable = specifier is not None and specifier.kind == "specifier"
-            if mutable:
-                statement.index += 1
-            name = statement.take("ident", "expected a variable name")
-            if name.text in symbols:
-                fail(name, f"variable '{name.text}' is declared twice")
-            statement.take("lbrace", f"variable '{name.text}' needs an initialiser in {{}}")
-            value = expression(statement)
-            statement.take("rbrace", "expected '}' after the initialiser")
-            statement.finish()
-            slot = builder.alloca(I32, name=name.text)
-            builder.store(value, slot)
-            symbols[name.text] = (slot, mutable)
-            continue
+    def visit_decl(self, node):
+        value = node.init.accept(self)
+        value = self.coerce(value, node.init.type, node.type_name)
+        slot = self.builder.alloca(TYPES[node.type_name], name=node.name)
+        self.builder.store(value, slot)
+        self.slots[id(node)] = slot
 
-        if first.kind == "ident":
-            statement.index += 1
-            statement.take("assign", "expected ':=' after the variable name")
-            slot, mutable = require_declared(first)
-            if not mutable:
-                fail(first, f"cannot assign to '{first.text}': it is not mut")
-            value = expression(statement)
-            statement.finish()
-            builder.store(value, slot)
-            continue
+    def visit_assign(self, node):
+        value = node.value.accept(self)
+        value = self.coerce(value, node.value.type, node.decl.type_name)
+        self.builder.store(value, self.slots[id(node.decl)])
 
-        if first.kind == "exit":
-            statement.index += 1
-            value = operand_value(statement)
-            statement.finish()
-            pointer = builder.bitcast(fmt, ir.PointerType(I8))
-            builder.call(printf, [pointer, value])
-            builder.ret(ir.Constant(I32, 0))
-            exited = True
-            continue
+    def visit_exit(self, node):
+        value = node.value.accept(self)
+        if node.value.type == "bool":
+            true_pointer = self.builder.bitcast(self.true_text, ir.PointerType(I8))
+            false_pointer = self.builder.bitcast(self.false_text, ir.PointerType(I8))
+            text = self.builder.select(value, true_pointer, false_pointer)
+            fmt = self.builder.bitcast(self.bool_fmt, ir.PointerType(I8))
+            self.builder.call(self.printf, [fmt, text])
+        else:
+            value = self.coerce(value, node.value.type, "i64")
+            fmt = self.builder.bitcast(self.int_fmt, ir.PointerType(I8))
+            self.builder.call(self.printf, [fmt, value])
+        self.builder.ret(ir.Constant(I32, 0))
 
-        fail(first, "invalid statement")
+    def visit_binop(self, node):
+        left = node.left.accept(self)
+        right = node.right.accept(self)
+        if node.op in ("+", "-", "*"):
+            operand_type = node.type
+            left = self.coerce(left, node.left.type, operand_type)
+            right = self.coerce(right, node.right.type, operand_type)
+            return {"+": self.builder.add, "-": self.builder.sub, "*": self.builder.mul}[node.op](left, right)
+        if node.left.type == "bool":
+            operand_type = "bool"
+        else:
+            operand_type = "i64" if "i64" in (node.left.type, node.right.type) else "i32"
+        left = self.coerce(left, node.left.type, operand_type)
+        right = self.coerce(right, node.right.type, operand_type)
+        return self.builder.icmp_signed(node.op, left, right)
 
-    if not exited:
-        last = next((tokens[-1] for tokens in reversed(lines) if tokens), None)
-        if last is not None:
-            fail(last, "missing exit statement")
-        raise CompileError(1, 1, "missing exit statement")
-    return module
+    def visit_var(self, node):
+        return self.builder.load(self.slots[id(node.decl)])
+
+    def visit_const(self, node):
+        return ir.Constant(TYPES[node.type], int(node.value.lstrip("0") or "0"))
+
+    def visit_bool(self, node):
+        return ir.Constant(I1, int(node.value))
+
+
+def compile_program(source: bytes):
+    tree = Parser(lex(source)).parse_program()
+    tree.accept(SemanticChecker())
+    return tree.accept(CodeGen())
 
 
 def main():
     args = parse_args()
     try:
         source = args.source.read_bytes()
-        module = compile_program(source)
-        # Open the output only after every source line has passed validation.
+        tree = Parser(lex(source)).parse_program()
+        if args.ast:
+            print(tree.dump())
+            return 0
+        tree.accept(SemanticChecker())
+        module = tree.accept(CodeGen())
+        # Open the output only after the entire tree passed validation.
         args.output.write_text(str(module), encoding="utf-8")
     except CompileError as error:
         print_error(error)

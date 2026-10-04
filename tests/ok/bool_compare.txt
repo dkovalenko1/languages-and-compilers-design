@@ -1,0 +1,4 @@
+bool left{true}
+bool right{false}
+bool different{left != right}
+exit different

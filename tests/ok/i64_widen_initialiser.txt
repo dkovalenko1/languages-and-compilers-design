@@ -1,0 +1,3 @@
+i32 neg{0 - 1}
+i64 wide{neg}
+exit wide

@@ -1,0 +1,4 @@
+i64 mut wide{0}
+i32 narrow{7}
+wide := narrow
+exit wide
