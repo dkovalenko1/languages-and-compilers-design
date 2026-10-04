@@ -9,6 +9,7 @@ KEYWORDS = {
     b"i32": "type", b"i64": "type", b"bool": "type",
     b"mut": "specifier", b"exit": "exit",
     b"true": "boolean", b"false": "boolean",
+    b"if": "if", b"else": "else",
 }
 SINGLE_BYTE = {
     ord("{"): "lbrace", ord("}"): "rbrace",
@@ -41,21 +42,17 @@ def lex(data: bytes) -> list[list[Token]]:
     """Return tokens grouped by source line; line boundaries represent newlines.
 
     Spaces and tabs are discarded. Positions count bytes, starting at one.
-    Only a byte ending an identifier or number is re-read in START.
+    A byte ending an identifier or a number, or following a single '!', is
+    re-read in START. Braces are plain tokens; the parser pairs them.
     """
     lines, tokens = [], []
     state, start, line, col = "START", 0, 1, 1
     start_line, start_col = 1, 1
-    open_braces = []
     i = 0
     while i <= len(data):
         b = data[i] if i < len(data) else None
         if state == "START":
             if b is None or b == 10:
-                if open_braces:
-                    opening_line, opening_col = open_braces[0]
-                    raise CompileError(opening_line, opening_col,
-                                    "'{' is not closed before the end of the line")
                 if b is None:
                     break
                 lines.append(tokens)
@@ -72,13 +69,9 @@ def lex(data: bytes) -> list[list[Token]]:
             elif b == ord("="):
                 state, start_line, start_col = "EQUAL", line, col
             elif b == ord("!"):
-                state, start_line, start_col = "NOT_EQUAL", line, col
+                state, start_line, start_col = "BANG", line, col
             elif b in SINGLE_BYTE:
                 tokens.append(Token(SINGLE_BYTE[b], chr(b), line, col))
-                if b == ord("{"):
-                    open_braces.append((line, col))
-                elif b == ord("}") and open_braces:
-                    open_braces.pop()
             else:
                 byte_text = repr(chr(b)) if 32 <= b <= 126 else f"0x{b:02x}"
                 raise CompileError(line, col, f"unexpected byte {byte_text}")
@@ -111,11 +104,12 @@ def lex(data: bytes) -> list[list[Token]]:
                 raise CompileError(start_line, start_col, "expected '==' (a single '=' is not an operator)")
             tokens.append(Token("eq", "==", start_line, start_col))
             state = "START"
-        elif state == "NOT_EQUAL":
-            if b != ord("="):
-                raise CompileError(start_line, start_col, "expected '!=' (a single '!' is not an operator)")
-            tokens.append(Token("ne", "!=", start_line, start_col))
+        elif state == "BANG":
             state = "START"
+            if b != ord("="):
+                tokens.append(Token("not", "!", start_line, start_col))
+                continue
+            tokens.append(Token("ne", "!=", start_line, start_col))
         i += 1
         col += 1
     if tokens:
