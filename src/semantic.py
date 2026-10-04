@@ -15,16 +15,19 @@ def fits(digits: str, limit: str) -> bool:
 
 class SemanticChecker:
     def __init__(self):
-        self.symbols = {}  # Source name -> declaration node.
+        # A stack of frames, source name -> declaration node. The program's
+        # frame is at the bottom; every block pushes one and pops it on exit.
+        self.scopes = [{}]
 
     def fail(self, node, message):
         raise CompileError(node.line, node.column, message)
 
-    def require_declared(self, node):
-        decl = self.symbols.get(node.name)
-        if decl is None:
-            self.fail(node, f"variable '{node.name}' is used before its declaration")
-        return decl
+    def lookup(self, node):
+        """Resolve a use to the innermost declaration of its name."""
+        for frame in reversed(self.scopes):
+            if node.name in frame:
+                return frame[node.name]
+        self.fail(node, f"variable '{node.name}' is used before its declaration")
 
     def check_assignable(self, expr, want: str, at, action: str):
         have = expr.type
@@ -40,15 +43,34 @@ class SemanticChecker:
         node.exit.accept(self)
         return node
 
+    def visit_block(self, node):
+        self.scopes.append({})
+        for statement in node.statements:
+            statement.accept(self)
+        if node.exit:
+            node.exit.accept(self)
+        self.scopes.pop()
+
+    def visit_if(self, node):
+        condition = node.condition.accept(self)
+        if condition != "bool":
+            self.fail(node, f"the condition of 'if' must be bool, got {condition}")
+        node.then_block.accept(self)
+        if node.else_block:
+            node.else_block.accept(self)
+
     def visit_decl(self, node):
-        if node.name in self.symbols:
-            self.fail(node, f"variable '{node.name}' is declared twice")
+        # Only the innermost frame is checked: an outer name may be shadowed.
+        frame = self.scopes[-1]
+        if node.name in frame:
+            where = "declared twice" if len(self.scopes) == 1 else "already declared in this block"
+            self.fail(node, f"variable '{node.name}' is {where}")
         node.init.accept(self)  # The name is not in scope in its own initializer.
         self.check_assignable(node.init, node.type_name, node, f"initialise '{node.name}'")
-        self.symbols[node.name] = node
+        frame[node.name] = node
 
     def visit_assign(self, node):
-        node.decl = self.require_declared(node)
+        node.decl = self.lookup(node)
         if not node.decl.mutable:
             self.fail(node, f"cannot assign to '{node.name}': it is not mut")
         node.value.accept(self)
@@ -70,8 +92,15 @@ class SemanticChecker:
             node.type = "bool"
         return node.type
 
+    def visit_not(self, node):
+        operand = node.operand.accept(self)
+        if operand != "bool":
+            self.fail(node, f"cannot apply '!' to {operand}")
+        node.type = "bool"
+        return node.type
+
     def visit_var(self, node):
-        node.decl = self.require_declared(node)
+        node.decl = self.lookup(node)
         node.type = node.decl.type_name
         return node.type
 

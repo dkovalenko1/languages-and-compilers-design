@@ -69,6 +69,55 @@ class SemanticTests(unittest.TestCase):
         self.assertEqual(c.init.type, "bool")
         self.assertIs(tree.exit.value.decl, c)
 
+    def test_scope_and_bool_errors_with_source_positions(self):
+        cases = [
+            (b"i32 a{1}\nif a\n{\n    exit 1\n}\nexit 0",
+             "line 2:1: the condition of 'if' must be bool, got i32"),
+            (b"i32 a{1}\nbool b{!a}\nexit b",
+             "line 2:8: cannot apply '!' to i32"),
+            (b"if true\n{\n    i32 inner{1}\n}\nexit inner",
+             "line 5:6: variable 'inner' is used before its declaration"),
+            (b"if true\n{\n    i32 a{1}\n    i32 a{2}\n    exit a\n}\nexit 0",
+             "line 4:9: variable 'a' is already declared in this block"),
+            (b"i32 mut x{1}\nif true\n{\n    bool mut x{true}\n    x := 5\n}\nexit x",
+             "line 5:5: cannot assign to 'x' of type bool with a value of type i32"),
+            (b"i64 n{1}\nif n == 1\n{\n    i32 x{n}\n    exit x\n}\nexit 0",
+             "line 4:9: cannot initialise 'x' of type i32 with a value of type i64"),
+            (b"bool b{true}\nif b\n{\n    exit !1\n}\nexit 0",
+             "line 4:10: cannot apply '!' to i32"),
+            (b"if true\n{\n    exit 1\n}\nelse\n{\n    i32 e{1}\n}\nexit e",
+             "line 9:6: variable 'e' is used before its declaration"),
+            (b"i32 x{1}\nif true\n{\n    x := 2\n}\nexit x",
+             "line 4:5: cannot assign to 'x': it is not mut"),
+        ]
+        for source, expected in cases:
+            with self.subTest(source=source), self.assertRaises(CompileError) as caught:
+                check(source)
+            self.assertEqual(str(caught.exception), "compilation error: " + expected)
+
+    def test_shadowing_resolves_each_use_to_its_own_declaration(self):
+        tree = check(b"i32 mut x{10}\nif true\n{\n    bool mut x{true}\n    if x\n    {\n"
+                     b"        i64 mut x{20}\n        exit x\n    }\n    exit x\n}\nexit x\n")
+        outer = tree.statements[0]
+        middle_block = tree.statements[1].then_block
+        middle, inner_if = middle_block.statements
+        inner_block = inner_if.then_block
+        inner = inner_block.statements[0]
+        self.assertEqual([outer.type_name, middle.type_name, inner.type_name], ["i32", "bool", "i64"])
+        self.assertIs(inner_if.condition.decl, middle)
+        self.assertIs(inner_block.exit.value.decl, inner)
+        self.assertEqual(inner_block.exit.value.type, "i64")
+        self.assertIs(middle_block.exit.value.decl, middle)
+        self.assertIs(tree.exit.value.decl, outer)
+
+    def test_scopes_reopen_and_outer_names_stay_visible(self):
+        tree = check(b"i32 mut a{1}\nbool c{true}\nif !c\n{\n    i32 t{2}\n    a := t\n}\nelse\n{\n"
+                     b"    i64 t{3}\n    a := a + 1\n}\ni32 t{4}\nexit t\n")
+        if_node = tree.statements[2]
+        self.assertEqual(if_node.condition.type, "bool")
+        self.assertIs(if_node.then_block.statements[1].decl, tree.statements[0])
+        self.assertIs(tree.exit.value.decl, tree.statements[3])
+
 
 if __name__ == "__main__":
     unittest.main()
