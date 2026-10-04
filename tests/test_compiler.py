@@ -46,7 +46,7 @@ class CompilerTests(unittest.TestCase):
                 linked = subprocess.run([clang, str(output), "-o", str(program)],
                                         capture_output=True, text=True)
                 self.assertEqual(linked.returncode, 0, linked.stderr)
-                run = subprocess.run([str(program)], capture_output=True, text=True)
+                run = subprocess.run([str(program)], capture_output=True, text=True, timeout=10)
                 self.assertEqual(run.returncode, 0, run.stderr)
                 self.assertEqual(run.stderr, "")
                 expected = source.with_suffix(".expected" if source.parent.name == "ok" else ".out")
@@ -132,6 +132,15 @@ class CompilerTests(unittest.TestCase):
         ir_text = self.compiled_ir(FIXTURES / "ok" / "if-else_example.txt")
         self.assertRegex(ir_text, r'br i1 %"?\.?\w+"?, label %"then", label %"else"')
         self.assertEqual(ir_text.count('br label %"merge"'), 2)
+
+    def test_while_has_condition_body_end_and_a_back_edge(self):
+        module = llvm.parse_assembly(self.compiled_ir(FIXTURES / "ok" / "while_sum.txt"))
+        blocks = {block.name: list(block.instructions) for block in module.get_function("main").blocks}
+        self.assertEqual(list(blocks), ["entry", "cond", "body", "end"])
+        self.assertRegex(str(blocks["entry"][-1]), r'br label %"?cond"?')
+        self.assertRegex(str(blocks["cond"][-1]), r'br i1 %\S+, label %"?body"?, label %"?end"?')
+        self.assertRegex(str(blocks["body"][-1]), r'br label %"?cond"?')  # The back edge.
+        self.assertEqual(blocks["end"][-1].opcode, "ret")
 
     @unittest.skipUnless(shutil.which("opt"), "opt is required for the mem2reg check")
     def test_mem2reg_turns_both_arm_stores_into_a_phi(self):

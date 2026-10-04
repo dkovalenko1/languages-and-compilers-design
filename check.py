@@ -31,8 +31,8 @@ SUITES = [
 ]
 
 
-def run(command):
-    return subprocess.run(command, capture_output=True, text=True)
+def run(command, timeout=60):
+    return subprocess.run(command, capture_output=True, text=True, timeout=timeout)
 
 
 def compiler(*args):
@@ -45,7 +45,10 @@ def check_valid(source: Path, expected: Path, directory: Path) -> str | None:
     result = compiler(str(source), str(output))
     if result.returncode != 0:
         return "did not compile: " + result.stderr.strip()
-    executed = run([LLI, str(output)])
+    try:
+        executed = run([LLI, str(output)], timeout=10)
+    except subprocess.TimeoutExpired:
+        return "lli did not finish within 10 seconds"
     if executed.returncode != 0:
         return f"lli exited with {executed.returncode}: {executed.stderr.strip()}"
     if executed.stdout != expected.read_text():
@@ -90,7 +93,7 @@ def main() -> int:
             detail = first_line(expected) if reason is None else reason
             rows.append((name, source.stem, "PASS" if reason is None else "FAIL", detail))
 
-    unit = run([sys.executable, "-B", "-m", "unittest", "discover", "-s", str(TESTS)])
+    unit = run([sys.executable, "-B", "-m", "unittest", "discover", "-s", str(TESTS)], timeout=600)
     summary = unit.stderr.strip().splitlines()
     ran = next((line for line in summary if line.startswith("Ran ")), "no tests ran")
     unit_ok = unit.returncode == 0

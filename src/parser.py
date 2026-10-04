@@ -2,12 +2,12 @@
 
 Two cursors: a line cursor (peek_line / next_line) walks the non-blank lines,
 and a token cursor (peek / eat) walks the current line. A statement is one
-line, except an if, which also consumes the lines of its blocks.
+line, except an if or a while, which also consumes the lines of its blocks.
 """
 
 from ast_nodes import (
     AssignNode, BinOpNode, BlockNode, BoolNode, ConstNode, DeclNode, ExitNode,
-    IfNode, NotNode, ProgramNode, VarNode,
+    IfNode, NotNode, ProgramNode, VarNode, WhileNode,
 )
 from lexer import CompileError, Token
 
@@ -68,11 +68,13 @@ class Parser:
             raise CompileError(tokens[0].line, tokens[0].column, "exit must be the last statement")
         return ProgramNode(1, 1, statements, exit_node)
 
-    def parse_statement(self):  # statement ::= decl | assign | if
-        """Consume one line, or for an if, every line up to the end of its last block."""
+    def parse_statement(self):  # statement ::= decl | assign | if | while
+        """Consume one line, or for an if or a while, every line up to the end of its last block."""
         token = self.next_line()[0]
         if token.kind == "if":
             return self.parse_if()
+        if token.kind == "while":
+            return self.parse_while()
         if token.kind == "type":
             statement = self.parse_decl()
         elif token.kind == "ident":
@@ -98,6 +100,12 @@ class Parser:
             self.finish_line()
             else_block = self.parse_block("else")
         return IfNode(keyword.line, keyword.column, condition, then_block, else_block)
+
+    def parse_while(self) -> WhileNode:  # while ::= "while" expr NL block
+        keyword = self.eat()
+        condition = self.parse_expr()
+        self.finish_line()
+        return WhileNode(keyword.line, keyword.column, condition, self.parse_block("while"))
 
     def parse_block(self, owner: str) -> BlockNode:
         """block ::= "{" NL { statement } [ exit NL ] "}" NL, and not empty."""

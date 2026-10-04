@@ -1,0 +1,7 @@
+i64 mut n{3}
+bool stop{true}
+while !stop
+{
+    n := n * 2
+}
+exit n

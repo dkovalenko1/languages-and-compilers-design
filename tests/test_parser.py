@@ -127,6 +127,17 @@ class ParserTests(unittest.TestCase):
             "  Exit", "    Not", "      Var b",
         ]))
 
+    def test_while_dump(self):
+        source = b"i32 mut i{0}\nwhile i != 3\n{\n    i := i + 1\n}\nexit i\n"
+        self.assertEqual(self.parse(source).dump(), "\n".join([
+            "Program",
+            "  Decl i i32 mut", "    Const 0",
+            "  While",
+            "    BinOp !=", "      Var i", "      Const 3",
+            "    Block", "      Assign i", "        BinOp +", "          Var i", "          Const 1",
+            "  Exit", "    Var i",
+        ]))
+
     def test_block_errors_and_columns(self):
         cases = [
             (b"i32 mut a{1}\nbool b{true}\nif b\na := a + 1\nexit a",
@@ -148,6 +159,9 @@ class ParserTests(unittest.TestCase):
             (b"if true", "line 1:8: expected '{' on its own line after 'if', found end of file"),
             (b"bool b{true}\n!b\nexit b", "line 2:1: cannot start a statement with '!'"),
             (b"bool b{!}\nexit b", "line 1:9: expected a constant or a variable, got '}'"),
+            (b"while true {\n  exit 1\n}\nexit 0", "line 1:12: unexpected '{' after the statement"),
+            (b"while true\n{\n}\nexit 0", "line 2:1: empty block"),
+            (b"while true\nexit 0", "line 2:1: expected '{' on its own line after 'while', got 'exit'"),
         ]
         for source, expected in cases:
             with self.subTest(source=source), self.assertRaises(CompileError) as caught:

@@ -1,0 +1,10 @@
+bool go{false}
+while go
+{
+    exit 1
+}
+else
+{
+    exit 2
+}
+exit 0

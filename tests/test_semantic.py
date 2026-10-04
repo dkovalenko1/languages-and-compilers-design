@@ -89,6 +89,10 @@ class SemanticTests(unittest.TestCase):
              "line 9:6: variable 'e' is used before its declaration"),
             (b"i32 x{1}\nif true\n{\n    x := 2\n}\nexit x",
              "line 4:5: cannot assign to 'x': it is not mut"),
+            (b"i32 mut i{3}\nwhile i\n{\n    i := i - 1\n}\nexit i",
+             "line 2:1: the condition of 'while' must be bool, got i32"),
+            (b"bool mut go{true}\nwhile go\n{\n    i32 last{1}\n    go := false\n}\nexit last",
+             "line 7:6: variable 'last' is used before its declaration"),
         ]
         for source, expected in cases:
             with self.subTest(source=source), self.assertRaises(CompileError) as caught:

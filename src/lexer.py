@@ -9,7 +9,7 @@ KEYWORDS = {
     b"i32": "type", b"i64": "type", b"bool": "type",
     b"mut": "specifier", b"exit": "exit",
     b"true": "boolean", b"false": "boolean",
-    b"if": "if", b"else": "else",
+    b"if": "if", b"else": "else", b"while": "while",
 }
 SINGLE_BYTE = {
     ord("{"): "lbrace", ord("}"): "rbrace",

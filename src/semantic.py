@@ -51,13 +51,20 @@ class SemanticChecker:
             node.exit.accept(self)
         self.scopes.pop()
 
-    def visit_if(self, node):
+    def check_condition(self, node, keyword: str):
         condition = node.condition.accept(self)
         if condition != "bool":
-            self.fail(node, f"the condition of 'if' must be bool, got {condition}")
+            self.fail(node, f"the condition of '{keyword}' must be bool, got {condition}")
+
+    def visit_if(self, node):
+        self.check_condition(node, "if")
         node.then_block.accept(self)
         if node.else_block:
             node.else_block.accept(self)
+
+    def visit_while(self, node):
+        self.check_condition(node, "while")
+        node.body.accept(self)
 
     def visit_decl(self, node):
         # Only the innermost frame is checked: an outer name may be shadowed.

@@ -1,14 +1,16 @@
-(* Practice 5 grammar: the Practice 4 language with if / else, blocks and '!'.
+(* Practice 5 grammar: the Practice 4 language with if / else, while, blocks
+   and '!'.
    The lexer returns one token vector per line. NL is the boundary between
    vectors (or the end of the final vector); it is not a stored Token. Blank
    lines may stand anywhere and carry nothing. '{', '}' and 'else' stand alone
    on their lines; the parser, not the lexer, pairs the braces. *)
 
 program    ::= { statement } exit_line ;
-statement  ::= declaration NL | assignment NL | if ;
+statement  ::= declaration NL | assignment NL | if | while ;
 declaration ::= type [ "mut" ] ident "{" expr "}" ;
 assignment ::= ident ":=" expr ;
 if         ::= "if" expr NL block [ "else" NL block ] ;
+while      ::= "while" expr NL block ;
 block      ::= "{" NL { statement } [ exit_line ] "}" NL ;   (* not empty *)
 exit_line  ::= "exit" factor NL ;
 type       ::= "i32" | "i64" | "bool" ;

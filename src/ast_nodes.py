@@ -117,6 +117,21 @@ class IfNode(StmtNode):
 
 
 @dataclass
+class WhileNode(StmtNode):
+    condition: ExprNode
+    body: BlockNode
+
+    def label(self):
+        return "While"
+
+    def children(self):
+        return (self.condition, self.body)
+
+    def accept(self, visitor):
+        return visitor.visit_while(self)
+
+
+@dataclass
 class ExitNode(Node):
     value: ExprNode
 

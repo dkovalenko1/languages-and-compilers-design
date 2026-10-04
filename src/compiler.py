@@ -113,6 +113,19 @@ class CodeGen:
                 self.builder.branch(merge_bb)
         self.builder.position_at_end(merge_bb)
 
+    def visit_while(self, node):
+        cond_bb = self.function.append_basic_block("cond")
+        body_bb = self.function.append_basic_block("body")
+        end_bb = self.function.append_basic_block("end")
+        self.builder.branch(cond_bb)
+        self.builder.position_at_end(cond_bb)  # The condition is re-read on every pass.
+        self.builder.cbranch(node.condition.accept(self), body_bb, end_bb)
+        self.builder.position_at_end(body_bb)
+        node.body.accept(self)
+        if not self.builder.block.is_terminated:
+            self.builder.branch(cond_bb)  # The back edge.
+        self.builder.position_at_end(end_bb)
+
     def visit_decl(self, node):
         value = node.init.accept(self)
         value = self.coerce(value, node.init.type, node.type_name)
