@@ -1,20 +1,21 @@
-(* Practice 4 grammar, extended with types and comparisons in Task 1.
-   The lexer returns one token vector per line. "endline" is the boundary
-   between vectors; "eof" is the end of the final vector. Neither is a
-   stored Token. Blank lines may precede or follow the final exit. *)
+(* Practice 5 grammar: the Practice 4 language with if / else, while, blocks
+   and '!'.
+   The lexer returns one token vector per line. NL is the boundary between
+   vectors (or the end of the final vector); it is not a stored Token. Blank
+   lines may stand anywhere and carry nothing. '{', '}' and 'else' stand alone
+   on their lines; the parser, not the lexer, pairs the braces. *)
 
-program      ::= { blank_line | statement_line } exit_line { blank_line } ;
-blank_line   ::= endline ;
-statement_line ::= statement endline ;
-exit_line    ::= exit_statement ( endline | eof ) ;
-statement    ::= declaration | assignment ;
-declaration  ::= type [ "mut" ] ident "{" expr "}" ;
-assignment   ::= ident ":=" expr ;
-exit_statement ::= "exit" factor ;
-type         ::= "i32" | "i64" | "bool" ;
-expr         ::= arith [ ( "==" | "!=" ) arith ] ;
-arith        ::= term { ( "+" | "-" ) term } ;
-term         ::= factor { "*" factor } ;
-factor       ::= number | "true" | "false" | ident ;
-endline      ::= ? boundary between the lexer's line vectors ? ;
-eof          ::= ? end of input ? ;
+program    ::= { statement } exit_line ;
+statement  ::= declaration NL | assignment NL | if | while ;
+declaration ::= type [ "mut" ] ident "{" expr "}" ;
+assignment ::= ident ":=" expr ;
+if         ::= "if" expr NL block [ "else" NL block ] ;
+while      ::= "while" expr NL block ;
+block      ::= "{" NL { statement } [ exit_line ] "}" NL ;   (* not empty *)
+exit_line  ::= "exit" factor NL ;
+type       ::= "i32" | "i64" | "bool" ;
+expr       ::= arith [ ( "==" | "!=" ) arith ] ;
+arith      ::= term { ( "+" | "-" ) term } ;
+term       ::= factor { "*" factor } ;
+factor     ::= number | "true" | "false" | ident | "!" factor ;
+NL         ::= ? boundary between the lexer's line vectors, or end of input ? ;

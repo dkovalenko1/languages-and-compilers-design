@@ -1,0 +1,26 @@
+Program
+  Decl a bool const
+    Bool true
+  Decl b bool const
+    Bool false
+  Decl c bool const
+    BinOp ==
+      Not
+        Var a
+      Var b
+  Decl d bool mut
+    Not
+      Not
+        Var c
+  If
+    Not
+      Var d
+    Block
+      Assign d
+        Bool true
+    Block
+      Assign d
+        Not
+          Var d
+  Exit
+    Var d
