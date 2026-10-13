@@ -18,7 +18,7 @@ TYPES = {"bool": I1, "i32": I32, "i64": I64}
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="LLVM Compiler for practice 4")
+    parser = argparse.ArgumentParser(description="LLVM Compiler for practice 5")
     parser.add_argument("--ast", action="store_true", help="Print the syntax tree without writing IR")
     parser.add_argument("source", type=Path, help="Path to the source program")
     parser.add_argument("output", type=Path, nargs="?", help="Path to the output LLVM IR file")
@@ -40,10 +40,11 @@ class CodeGen:
     """Emit IR from a checked tree, with no source-language validation."""
 
     def __init__(self):
-        self.module = ir.Module(name="practice4")
+        self.module = ir.Module(name="practice5")
         self.module.triple = llvm.get_default_triple()
-        main = ir.Function(self.module, ir.FunctionType(I32, []), name="main")
-        self.builder = ir.IRBuilder(main.append_basic_block("entry"))
+        self.function = ir.Function(self.module, ir.FunctionType(I32, []), name="main")
+        self.entry = self.function.append_basic_block("entry")
+        self.builder = ir.IRBuilder(self.entry)
         self.printf = ir.Function(
             self.module, ir.FunctionType(I32, [ir.PointerType(I8)], var_arg=True),
             name="printf",
@@ -53,6 +54,7 @@ class CodeGen:
         self.true_text = self.global_string("bool_true", b"true\0")
         self.false_text = self.global_string("bool_false", b"false\0")
         self.slots = {}  # Declaration identity -> LLVM stack slot.
+        self.last_alloca = None  # Slots stay in declaration order at the top of entry.
 
     def global_string(self, name: str, text: bytes):
         array_type = ir.ArrayType(I8, len(text))
@@ -61,6 +63,21 @@ class CodeGen:
         variable.global_constant = True
         variable.initializer = ir.Constant(array_type, bytearray(text))
         return variable
+
+    def entry_alloca(self, type_name: str, name: str):
+        """Allocate a slot at the start of the entry block, wherever the builder is.
+
+        A slot made inside one arm of an if would not exist on the other path,
+        and mem2reg only promotes allocas that stand in the entry block.
+        """
+        current = self.builder.block
+        if self.last_alloca is None:
+            self.builder.position_at_start(self.entry)
+        else:
+            self.builder.position_after(self.last_alloca)
+        slot = self.last_alloca = self.builder.alloca(TYPES[type_name], name=name)
+        self.builder.position_at_end(current)
+        return slot
 
     def coerce(self, value, have: str, want: str):
         if have == "i32" and want == "i64":
@@ -73,10 +90,46 @@ class CodeGen:
         node.exit.accept(self)
         return self.module
 
+    def visit_block(self, node):
+        for statement in node.statements:
+            statement.accept(self)
+        if node.exit:
+            node.exit.accept(self)
+
+    def visit_if(self, node):
+        condition = node.condition.accept(self)
+        then_bb = self.function.append_basic_block("then")
+        else_bb = self.function.append_basic_block("else") if node.else_block else None
+        merge_bb = self.function.append_basic_block("merge")
+        self.builder.cbranch(condition, then_bb, else_bb or merge_bb)
+        for block, arm in ((then_bb, node.then_block), (else_bb, node.else_block)):
+            if block is None:
+                continue
+            self.builder.position_at_end(block)
+            arm.accept(self)
+            # The current block, not the arm's first one: a nested if moved the
+            # builder to its own merge. An arm that exited already has its ret.
+            if not self.builder.block.is_terminated:
+                self.builder.branch(merge_bb)
+        self.builder.position_at_end(merge_bb)
+
+    def visit_while(self, node):
+        cond_bb = self.function.append_basic_block("cond")
+        body_bb = self.function.append_basic_block("body")
+        end_bb = self.function.append_basic_block("end")
+        self.builder.branch(cond_bb)
+        self.builder.position_at_end(cond_bb)  # The condition is re-read on every pass.
+        self.builder.cbranch(node.condition.accept(self), body_bb, end_bb)
+        self.builder.position_at_end(body_bb)
+        node.body.accept(self)
+        if not self.builder.block.is_terminated:
+            self.builder.branch(cond_bb)  # The back edge.
+        self.builder.position_at_end(end_bb)
+
     def visit_decl(self, node):
         value = node.init.accept(self)
         value = self.coerce(value, node.init.type, node.type_name)
-        slot = self.builder.alloca(TYPES[node.type_name], name=node.name)
+        slot = self.entry_alloca(node.type_name, node.name)
         self.builder.store(value, slot)
         self.slots[id(node)] = slot
 
@@ -114,6 +167,9 @@ class CodeGen:
         left = self.coerce(left, node.left.type, operand_type)
         right = self.coerce(right, node.right.type, operand_type)
         return self.builder.icmp_signed(node.op, left, right)
+
+    def visit_not(self, node):
+        return self.builder.not_(node.operand.accept(self))
 
     def visit_var(self, node):
         return self.builder.load(self.slots[id(node.decl)])

@@ -1,0 +1,13 @@
+bool a{true}
+bool b{false}
+bool c{!a == b}
+bool mut d{!!c}
+if !d
+{
+    d := true
+}
+else
+{
+    d := ! d
+}
+exit d

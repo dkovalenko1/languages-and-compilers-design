@@ -1,0 +1,19 @@
+i32 x{7}
+i32 mut r{0}
+if x == 7
+{
+    if x != 3
+    {
+        r := 1
+    }
+    else
+    {
+        r := 2
+    }
+    r := r * 10
+}
+else
+{
+    r := 99
+}
+exit r

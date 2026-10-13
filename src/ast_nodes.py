@@ -83,6 +83,55 @@ class AssignNode(StmtNode):
 
 
 @dataclass
+class BlockNode(Node):
+    """Lines between '{' and '}': a scope of its own, ending with an optional exit."""
+
+    statements: list[StmtNode]
+    exit: "ExitNode | None"
+
+    def label(self):
+        return "Block"
+
+    def children(self):
+        return (*self.statements, self.exit) if self.exit else tuple(self.statements)
+
+    def accept(self, visitor):
+        return visitor.visit_block(self)
+
+
+@dataclass
+class IfNode(StmtNode):
+    condition: ExprNode
+    then_block: BlockNode
+    else_block: BlockNode | None
+
+    def label(self):
+        return "If"
+
+    def children(self):
+        blocks = (self.then_block, self.else_block) if self.else_block else (self.then_block,)
+        return (self.condition, *blocks)
+
+    def accept(self, visitor):
+        return visitor.visit_if(self)
+
+
+@dataclass
+class WhileNode(StmtNode):
+    condition: ExprNode
+    body: BlockNode
+
+    def label(self):
+        return "While"
+
+    def children(self):
+        return (self.condition, self.body)
+
+    def accept(self, visitor):
+        return visitor.visit_while(self)
+
+
+@dataclass
 class ExitNode(Node):
     value: ExprNode
 
@@ -110,6 +159,20 @@ class BinOpNode(ExprNode):
 
     def accept(self, visitor):
         return visitor.visit_binop(self)
+
+
+@dataclass
+class NotNode(ExprNode):
+    operand: ExprNode
+
+    def label(self):
+        return "Not"
+
+    def children(self):
+        return (self.operand,)
+
+    def accept(self, visitor):
+        return visitor.visit_not(self)
 
 
 @dataclass

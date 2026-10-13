@@ -1,0 +1,11 @@
+i64 mut n{10}
+if n == 10
+{
+    n := n * 4
+    exit n
+}
+else
+{
+    exit 0
+}
+exit 1

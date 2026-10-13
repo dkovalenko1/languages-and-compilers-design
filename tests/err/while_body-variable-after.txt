@@ -1,0 +1,7 @@
+bool mut go{true}
+while go
+{
+    i32 last{1}
+    go := false
+}
+exit last
