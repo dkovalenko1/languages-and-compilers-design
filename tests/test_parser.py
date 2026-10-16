@@ -168,6 +168,39 @@ class ParserTests(unittest.TestCase):
                 self.parse(source)
             self.assertEqual(str(caught.exception), "compilation error: " + expected)
 
+    def test_struct_init_and_field_chain_dump(self):
+        source = (b"struct P\n{\n    i32 mut x\n}\nstruct C\n{\n    P mut p\n}\n"
+                  b"C mut c{{1}}\nc.p.x := 2\nexit c.p.x\n")
+        self.assertEqual(self.parse(source).dump(), "\n".join([
+            "Program",
+            "  Struct P", "    FieldDecl x i32 mut",
+            "  Struct C", "    FieldDecl p P mut",
+            "  Decl c C mut", "    Init", "      Const 1",
+            "  Assign c.p.x", "    Const 2",
+            "  Exit", "    Field x", "      Field p", "        Var c",
+        ]))
+
+    def test_struct_function_and_order_errors(self):
+        cases = [
+            (b"fn f := () -> i32\n{\n    exit 1\n}\nstruct P\n{\n    i32 x\n}\nexit 0",
+             "line 5:1: struct declared after a function"),
+            (b"i32 a{1}\nstruct P\n{\n    i32 x\n}\nexit a",
+             "line 2:1: struct declared after a statement"),
+            (b"fn f := () -> i32\n{\n    fn g := () -> i32\n    exit 1\n}\nexit f()",
+             "line 3:5: a function can be declared only at the top level"),
+            (b"if true\n{\n    struct P\n    exit 1\n}\nexit 0",
+             "line 3:5: a struct can be declared only at the top level"),
+            (b"fn f := () -> i32\n{\n    exit 1\n}\nf()\nexit 0", "line 5:1: a call is not a statement"),
+            (b"i32 a{(1 + 2)}\nexit a", "line 1:7: expected a constant or a variable, got '('"),
+            (b"struct P\n{\n}\nexit 0", "line 2:1: struct 'P' needs at least one field"),
+            (b"fn f := () -> i32\n{\n    i32 a{1}\n}\nexit f()", "line 4:1: the body of 'f' must end with exit"),
+            (b"fn f := ()\n{\n    exit 1\n}\nexit f()", "line 1:11: expected '->' and the result type after ')'"),
+        ]
+        for source, expected in cases:
+            with self.subTest(source=source), self.assertRaises(CompileError) as caught:
+                self.parse(source)
+            self.assertEqual(str(caught.exception), "compilation error: " + expected)
+
     def test_ast_cli_does_not_write_ir(self):
         source = ROOT / "tests" / "valid" / "worked_example.txt"
         run = subprocess.run(

@@ -1,0 +1,20 @@
+fn add := (i32 a, i32 b) -> i32
+{
+    i32 sum{a + b}
+    exit sum
+}
+fn square := (i32 n) -> i32
+{
+    i32 r{n * n}
+    exit r
+}
+fn ten := () -> i32
+{
+    exit 10
+}
+i32 mut total{add(square(add(1, 2)), add(ten(), square(2)))}
+if add(total, 2) == square(5)
+{
+    total := total * add(ten(), 0)
+}
+exit add(total, square(ten()))

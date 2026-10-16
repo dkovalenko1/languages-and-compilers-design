@@ -1,0 +1,24 @@
+struct Point
+{
+    i32 mut x
+    i32 mut y
+}
+struct Circle
+{
+    Point mut center
+    i32 mut radius
+}
+Point p{1, 2}
+Circle mut c{p, 10}
+c.radius := 5
+Point mut q{p}
+q.y := 100
+c.center := q
+q.y := 3
+c.center.x := 25
+Circle mut d{p, 0}
+d := c
+c.center.x := 9
+c.radius := 6
+i32 result{p.y * 100000 + d.center.x * 1000 + d.center.y * 10 + d.radius}
+exit result

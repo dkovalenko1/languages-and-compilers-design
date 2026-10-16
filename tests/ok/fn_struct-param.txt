@@ -1,0 +1,18 @@
+struct Point
+{
+    i32 mut x
+    i32 mut y
+}
+fn shiftedSum := (Point p, i32 dx) -> i32
+{
+    Point mut local{p}
+    local.x := local.x + dx
+    i32 sum{local.x + local.y}
+    exit sum
+}
+Point mut p{10, 20}
+i32 first{shiftedSum(p, 5)}
+p.y := 1
+i32 second{shiftedSum(p, 100)}
+i32 result{first * 1000 + second + p.x}
+exit result

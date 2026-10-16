@@ -36,6 +36,10 @@ class ExprNode(Node):
 
 @dataclass
 class ProgramNode(Node):
+    """program ::= { struct } { fn } { statement } exit"""
+
+    structs: list["StructNode"]
+    functions: list["FnNode"]
     statements: list[StmtNode]
     exit: "ExitNode"
 
@@ -43,10 +47,85 @@ class ProgramNode(Node):
         return "Program"
 
     def children(self):
-        return (*self.statements, self.exit)
+        return (*self.structs, *self.functions, *self.statements, self.exit)
 
     def accept(self, visitor):
         return visitor.visit_program(self)
+
+
+@dataclass
+class FieldDeclNode(Node):
+    name: str
+    type_name: str
+    mutable: bool
+
+    def label(self):
+        return f"FieldDecl {self.name} {self.type_name} {'mut' if self.mutable else 'const'}"
+
+
+@dataclass
+class StructNode(Node):
+    name: str
+    fields: list[FieldDeclNode]
+    methods: list["MemberFnNode"] = field(default_factory=list)
+
+    def label(self):
+        return f"Struct {self.name}"
+
+    def children(self):
+        return (*self.fields, *self.methods)
+
+    def accept(self, visitor):
+        return visitor.visit_struct(self)
+
+
+@dataclass
+class ParamNode(Node):
+    """A parameter is a const variable of the function body."""
+
+    name: str
+    type_name: str
+    mutable: bool = field(default=False, init=False)
+
+    def label(self):
+        return f"Param {self.name} {self.type_name}"
+
+
+@dataclass
+class FnNode(Node):
+    name: str
+    params: list[ParamNode]
+    result_type: str
+    body: "BlockNode"
+    owner: str | None = field(default=None, init=False, repr=False)
+    mutating: bool = field(default=False, init=False)
+
+    def label(self):
+        params = ", ".join(f"{param.type_name} {param.name}" for param in self.params)
+        return f"Fn {self.name} ({params}) -> {self.result_type}"
+
+    def children(self):
+        return (self.body,)
+
+    def accept(self, visitor):
+        return visitor.visit_fn(self)
+
+
+@dataclass
+class InitNode(Node):
+    """The values between '{' and '}': one per field, or a single value.
+
+    The position is the '{'. A value may be another InitNode for a struct field.
+    """
+
+    items: list["ExprNode | InitNode"]
+    copy: bool = field(default=False, init=False, repr=False)  # One value of the struct's own type.
+
+    def label(self):
+        return "Init"
+
+    def children(self):
+        return tuple(self.items)
 
 
 @dataclass
@@ -54,13 +133,15 @@ class DeclNode(StmtNode):
     name: str
     type_name: str
     mutable: bool
-    init: ExprNode
+    init: InitNode
+    type_line: int = field(default=0, repr=False)
+    type_column: int = field(default=0, repr=False)
 
     def label(self):
         return f"Decl {self.name} {self.type_name} {'mut' if self.mutable else 'const'}"
 
     def children(self):
-        return (self.init,)
+        return tuple(self.init.items)
 
     def accept(self, visitor):
         return visitor.visit_decl(self)
@@ -68,12 +149,14 @@ class DeclNode(StmtNode):
 
 @dataclass
 class AssignNode(StmtNode):
+    """target is a VarNode or a FieldNode chain that starts at the assigned variable."""
+
     name: str
+    target: "VarNode | FieldNode"
     value: ExprNode
-    decl: "DeclNode | None" = field(default=None, init=False, repr=False)
 
     def label(self):
-        return f"Assign {self.name}"
+        return f"Assign {path(self.target)}"
 
     def children(self):
         return (self.value,)
@@ -178,7 +261,7 @@ class NotNode(ExprNode):
 @dataclass
 class VarNode(ExprNode):
     name: str
-    decl: DeclNode | None = field(default=None, init=False, repr=False)
+    decl: DeclNode | ParamNode | FieldDeclNode | None = field(default=None, init=False, repr=False)
 
     def label(self):
         return f"Var {self.name}"
@@ -207,3 +290,109 @@ class BoolNode(ExprNode):
 
     def accept(self, visitor):
         return visitor.visit_bool(self)
+
+
+@dataclass
+class FieldNode(ExprNode):
+    """base.name, including struct call results; the checker sets index."""
+
+    base: ExprNode
+    name: str
+    index: int | None = field(default=None, init=False, repr=False)
+    dot_column: int | None = field(default=None, init=False, repr=False)
+
+    def label(self):
+        return f"Field {self.name}"
+
+    def children(self):
+        return (self.base,)
+
+    def accept(self, visitor):
+        return visitor.visit_field(self)
+
+
+@dataclass
+class CallNode(ExprNode):
+    name: str
+    args: list[ExprNode]
+    function: FnNode | None = field(default=None, init=False, repr=False)
+
+    def label(self):
+        return f"Call {self.name}"
+
+    def children(self):
+        return tuple(self.args)
+
+    def accept(self, visitor):
+        return visitor.visit_call(self)
+
+
+def path(node: "VarNode | FieldNode") -> str:
+    """The source text of a field chain: c.center.x."""
+    if isinstance(node, FieldNode):
+        return f"{path(node.base)}.{node.name}"
+    if isinstance(node, CallNode):
+        return f"{node.name}(...)"
+    return node.name
+
+
+@dataclass
+class MemberFnNode(FnNode):
+    def label(self):
+        return f"MemberFn {self.name} -> {self.result_type}"
+
+    def children(self):
+        return (*self.params, self.body)
+
+
+@dataclass
+class ThisNode(ExprNode):
+    """Internal receiver; the source language cannot name this object."""
+    def accept(self, visitor):
+        return visitor.visit_this(self)
+
+
+@dataclass
+class MemberCallNode(CallNode):
+    receiver: ExprNode
+    dot_column: int | None = field(default=None, init=False, repr=False)
+
+    def label(self):
+        return f"MemberCall {self.name}"
+
+    def children(self):
+        return (self.receiver, *self.args)
+
+    def accept(self, visitor):
+        return visitor.visit_member_call(self)
+
+
+@dataclass
+class ReadNode(ExprNode):
+    def label(self):
+        return "Read"
+
+    def accept(self, visitor):
+        return visitor.visit_read(self)
+
+
+@dataclass
+class StringNode(ExprNode):
+    value: str
+
+    def label(self):
+        return f"String {self.value!r}"
+
+
+@dataclass
+class PrintNode(StmtNode):
+    value: ExprNode
+
+    def label(self):
+        return "Print"
+
+    def children(self):
+        return (self.value,)
+
+    def accept(self, visitor):
+        return visitor.visit_print(self)

@@ -1,50 +1,82 @@
-Practice 5 AI usage log
+Practice 7 AI usage log
 
-Tool: Claude Code (Claude Opus 5.5) in the T3 Code app.
+Tool: Codex (gpt-6.1-sol) in T3 Code.
+Prompts: explain w07-practice.pdf; design a compact test suite and its file
+requirements; implement tests before code, commit after each verified step,
+then report verification and submission readiness.
 
-User requests that directed the work:
-- Read the Practice 5 sheet and explain the task, its requirements and the
-  definition of done.
-- Bring the local main branch up to date with origin, and explain why the
-  repository layout did not match the sheet (src/compiler.py, check.py).
-- Create the practice-5 branch, move the compiler into src/, add check.py, and
-  implement Tasks 1-3 and the additional while task, committing as it goes.
-  Do not push. Test and verify everything in the course VM.
+Tests-first step:
+- Read the supplied PDF and the existing parser, semantic checker, LLVM
+  generator and both runners. Created practice-7 from the clean practice-6.
+- Authored 12 successful and 10 rejected fixtures, including the two main
+  PDF examples and the optional result-46 example. Expected outputs and
+  source positions were derived from the programs before implementation.
+- Added parameterized name, typing, mutation, built-in and string checks,
+  an independently authored AST snapshot, and focused IR assertions.
+- Updated both runners to pass neighboring .in input or empty stdin.
+- Superseded the previous parser rejection of fields after calls because
+  this practice implements the optional task. Other previous tests remain.
+- AI-generated test sources are retained after manual source/expectation
+  review. The tests-first commit intentionally specified functionality not
+  yet present and failed until the implementation step.
 
-Use and review:
-- Claude read the Practice 3, 4 and 5 sheets and the Practice 4 code, and used
-  them as the specification. It moved the modules into src/ and wrote check.py,
-  which runs every fixture through the compiler and lli, compares stdout,
-  --ast and error messages, runs the unit tests, and prints a table.
-- Task 1: Claude added the if/else/while keywords and the ! token to the
-  lexer, removed the brace pairing from the lexer, and rewrote the parser
-  around a line cursor (peek_line / next_line). It also added the If, Block,
-  While and Not nodes. The warm-up --ast dump was compared line by line with
-  the sheet, and every parser error on the sheet was reproduced with its
-  line:column.
-- Changed on purpose: the sheet's "line 1:8: expected '}', found end of line"
-  is the i32 x{5 case, so the old unclosed_brace snapshot moved from the lexer's
-  1:6 to the parser's 1:8. The old single_bang error fixture (a lone '!' was a
-  lexical error in Practice 4) became bang_statement, which the parser now
-  rejects.
-- Task 2: the symbol table became a stack of frames. The five errors on the
-  sheet come out with the sheet's line:column. A unit test checks that the
-  three x in the warm-up program resolve to three different declarations.
-  Redeclaring at the top level keeps the Practice 3 "declared twice" message,
-  so the old fixtures still pass.
-- Task 3: if/else became then/else/merge blocks with cbranch, and each
-  alloca is placed in the entry block by a helper. Mutation checks confirmed
-  that the tests fail when an alloca is put outside the entry block, or when
-  a br is added after an arm that already exited.
-- A first draft of one while fixture never ended, because the shadowing
-  name hid the loop counter. It was caught while writing it and rewritten.
-  check.py and the native test run now time out programs that do not finish.
-- All expected outputs and error positions were worked out by hand before
-  running. Everything was verified in the Ubuntu VM (LLVM 18, llvmlite 0.49):
-  - lli prints 15, true, 20 and 55.
-  - opt -passes=mem2reg shows %r.0 = phi i32 [ 1, %then ], [ 2, %else ].
-  - opt -passes=verify accepts every tests/ok program.
-  - python3 check.py passes 90/90, including the Practice 2-4 fixtures.
+Implementation and review:
+- Retained the AI-authored member AST nodes, postfix parser, field-aware
+  name lookup, deferred fixed-point mutation analysis, pointer receiver
+  code generation, read/print and optional temporary call chains after
+  source review and the tests below. All instructions use llvmlite.ir;
+  the output is str(module). No IR instructions are assembled from strings.
+- Adjusted the initial implementation during review: separate LLVM context
+  per compilation; unique generated symbols for underscore ambiguities;
+  clearer separate duplicate-member/field-collision diagnostics; explicit
+  raw-NUL printing through %c between safe %s chunks.
+- Added two focused unit checks discovered in that review: arbitrary string
+  bytes including NUL and non-UTF8, and ambiguous generated method names.
+  Added the implicit mutating-call-through-const-field variant to the
+  existing mutation table. No additional fixture programs were needed.
+- Updated grammar.ebnf with the current language grammar. The initial
+  README update included semantics, fixture conventions and demonstration
+  commands; it was subsequently replaced by the landing page described below.
 
-The compiler still builds every instruction through llvmlite.ir, branches
-take basic-block objects, and IR text exists only as str(module).
+Verification before the implementation commit:
+- Tests-first VM run: all 112 old fixtures passed; the 22 new fixtures and
+  new feature assertions failed on the previous compiler, as intended.
+- Final Ubuntu 24.04 course VM run, llvmlite 0.49.0 / LLVM 18:
+  /home/ubuntu/lcd/bin/python check.py: 135/135 rows passed, including
+  57 unit tests with no skips. Both lli and clang execution paths passed.
+- opt -passes=verify accepted all 64 successful fixture programs.
+- The required --ast nodes and Point_shift pointer/GEP/load/add/store were
+  checked; opt -passes=mem2reg,verify accepted the member example.
+- lli produced 83 for Task 1, the exact Task 3 stdout with input 3 4, and
+  46 for the additional task. Both teacher-demo errors matched their exact
+  line:column expectations. full_compiler.sh built and ran the I/O example
+  natively with the same complete output.
+- macOS temporary environment with pinned llvmlite: 57 unit tests passed,
+  with 2 existing lli/opt-dependent tests skipped (those ran in the VM).
+- Two temporary deliberate-fault checks confirmed test value: passing a
+  copied receiver produced 67 rather than the expected 83; disabling
+  transitive mutation propagation incorrectly accepted the const cyclic
+  caller. Neither deliberate fault was retained in the source.
+- git diff --check passed.
+
+The work is committed locally on practice-7. Pushing, opening the PR into
+main with vovaskochko as reviewer, and showing the teacher remain submission
+actions; no PR has been opened by this session.
+
+Documentation follow-up:
+- User prompt: "README is a landing page, not the log of what we did.
+  Please clean it up, we should not have two segments for two practices
+  in in." Follow-up prompt: "update ai-usage".
+- Codex rewrote README as one landing page for the current compiler, with
+  setup, usage, a runnable language example, supported features, test-file
+  conventions and project layout. Removed the separate practice sections,
+  implementation history, grading/demo checklist and submission instructions.
+- Retained the AI-authored rewrite after checking every Markdown link and
+  referenced fixture path. Compiled the embedded example with llvmlite,
+  verified its LLVM IR, built it with Clang and checked its exact stdout:
+  5; Point{x: 5, y: 4}; Program exit with result 5 (each on its own line).
+- README cleanup was committed as 73b24b5. No compiler code changed, so the
+  full compiler suite was not rerun for that documentation-only edit.
+- Preserved the user's removal of the previous Practice 6 AI usage section.
+  Updated this log to record the README follow-up and make tests-first
+  wording historical. Reviewed the diff and ran git diff --check.

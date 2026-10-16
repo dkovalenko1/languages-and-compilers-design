@@ -1,0 +1,22 @@
+struct Box
+{
+    i32 mut x
+    fn local := () -> i32
+    {
+        if true
+        {
+            i32 mut x{20}
+            x := x + 1
+            print(x)
+        }
+        exit x
+    }
+    fn parameter := (i32 x) -> i32
+    {
+        exit x
+    }
+}
+Box b{7}
+print(b.local())
+print(b.parameter(9))
+exit b.x

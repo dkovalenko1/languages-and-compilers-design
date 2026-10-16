@@ -1,0 +1,10 @@
+struct P
+{
+    i32 x
+    fn f := () -> i32
+    {
+        exit x
+    }
+    i32 y
+}
+exit 0

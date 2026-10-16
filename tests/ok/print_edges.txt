@@ -1,0 +1,40 @@
+struct Data
+{
+    i32 n
+    i64 big
+    bool yes
+}
+struct Wrap
+{
+    Data data
+    fn show := () -> i32
+    {
+        print(data)
+        exit 0
+    }
+}
+fn make := () -> Data
+{
+    print("once")
+    Data d{0 - 9, 6000000000, false}
+    exit d
+}
+print("")
+print("100% %s %d \n")
+print(make())
+Wrap w{{1, 3000000000, true}}
+if false
+{
+    print("wrong")
+}
+else
+{
+    print(w)
+}
+i32 mut i{0}
+while i != 1
+{
+    print(w.show())
+    i := i + 1
+}
+exit 0

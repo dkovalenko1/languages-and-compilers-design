@@ -1,0 +1,43 @@
+Program
+  Struct Box
+    FieldDecl x i32 const
+    MemberFn combine -> i64
+      Param a i32
+      Param b i64
+      Block
+        Decl n i64 const
+          BinOp +
+            BinOp +
+              BinOp *
+                Var a
+                Const 10
+              Var b
+            Var x
+        Exit
+          Var n
+    MemberFn yes -> bool
+      Block
+        Exit
+          Bool true
+    MemberFn copy -> Box
+      Block
+        Decl b Box const
+          Var x
+        Exit
+          Var b
+  Decl b Box const
+    Const 3
+  Print
+    MemberCall combine
+      Var b
+      Const 2
+      Const 4
+  Print
+    MemberCall yes
+      Var b
+  Decl c Box const
+    MemberCall copy
+      Var b
+  Exit
+    Field x
+      Var c

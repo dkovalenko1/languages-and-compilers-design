@@ -1,0 +1,26 @@
+struct Point
+{
+    i32 mut x
+    i32 mut y
+}
+struct Info
+{
+    i64 id
+    bool visible
+    Point at
+}
+struct Shape
+{
+    bool filled
+    Info info
+    i32 mut size
+}
+Point p{3, 4}
+Info i{5000000000, true, p}
+Shape s{false, i, 7}
+i64 mut result{0}
+if s.info.visible
+{
+    result := s.info.id + s.info.at.y * s.size
+}
+exit result
