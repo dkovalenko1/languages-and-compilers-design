@@ -1,0 +1,7 @@
+fn bump := (i32 n) -> i32
+{
+    i32 r{n + base}
+    exit r
+}
+i32 base{10}
+exit bump(1)

@@ -1,21 +1,29 @@
-(* Practice 5 grammar: the Practice 4 language with if / else, while, blocks
-   and '!'.
+(* Practice 6 grammar: the Practice 5 language with structs, functions,
+   field chains and calls.
    The lexer returns one token vector per line. NL is the boundary between
    vectors (or the end of the final vector); it is not a stored Token. Blank
    lines may stand anywhere and carry nothing. '{', '}' and 'else' stand alone
    on their lines; the parser, not the lexer, pairs the braces. *)
 
-program    ::= { statement } exit_line ;
+program    ::= { struct } { fn } { statement } exit_line ;
+struct     ::= "struct" ident NL "{" NL field_decl { field_decl } "}" NL ;
+field_decl ::= type [ "mut" ] ident NL ;
+fn         ::= "fn" ident ":=" "(" [ type ident { "," type ident } ] ")" "->" type NL block ;
+                                                  (* its block ends with exit *)
 statement  ::= declaration NL | assignment NL | if | while ;
-declaration ::= type [ "mut" ] ident "{" expr "}" ;
-assignment ::= ident ":=" expr ;
+declaration ::= type [ "mut" ] ident init ;
+init       ::= "{" value { "," value } "}" ;
+value      ::= expr | init ;                      (* an inner init only for a struct field *)
+assignment ::= ident { "." ident } ":=" expr ;
 if         ::= "if" expr NL block [ "else" NL block ] ;
 while      ::= "while" expr NL block ;
 block      ::= "{" NL { statement } [ exit_line ] "}" NL ;   (* not empty *)
 exit_line  ::= "exit" factor NL ;
-type       ::= "i32" | "i64" | "bool" ;
+type       ::= "i32" | "i64" | "bool" | ident ;
 expr       ::= arith [ ( "==" | "!=" ) arith ] ;
 arith      ::= term { ( "+" | "-" ) term } ;
 term       ::= factor { "*" factor } ;
-factor     ::= number | "true" | "false" | ident | "!" factor ;
+factor     ::= number | "true" | "false" | ident | field | call | "!" factor ;
+field      ::= ident "." ident { "." ident } ;
+call       ::= ident "(" [ expr { "," expr } ] ")" ;
 NL         ::= ? boundary between the lexer's line vectors, or end of input ? ;

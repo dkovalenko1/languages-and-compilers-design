@@ -23,6 +23,16 @@ class LexerTests(unittest.TestCase):
             ("ident", "i32x"), ("star", "*"), ("ident", "exit2"),
         ])
 
+    def test_struct_function_and_call_tokens(self):
+        lines = lex(b"struct fn f:=(i32 a,P b)->P\na.b-1->x-")
+        self.assertEqual([[(t.kind, t.text) for t in row] for row in lines], [
+            [("struct", "struct"), ("fn", "fn"), ("ident", "f"), ("assign", ":="),
+             ("lparen", "("), ("type", "i32"), ("ident", "a"), ("comma", ","),
+             ("ident", "P"), ("ident", "b"), ("rparen", ")"), ("arrow", "->"), ("ident", "P")],
+            [("ident", "a"), ("dot", "."), ("ident", "b"), ("minus", "-"), ("number", "1"),
+             ("arrow", "->"), ("ident", "x"), ("minus", "-")],
+        ])
+
     def test_blank_lines_tabs_and_eof(self):
         self.assertEqual(lex(b""), [])
         self.assertEqual(lex(b" \t"), [])

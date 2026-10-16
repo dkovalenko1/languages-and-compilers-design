@@ -1,0 +1,10 @@
+fn printf := (i32 x) -> i32
+{
+    i32 r{x + 1}
+    exit r
+}
+fn main := () -> i32
+{
+    exit printf(41)
+}
+exit main()

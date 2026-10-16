@@ -1,0 +1,6 @@
+fn countdown := (i32 n) -> i32
+{
+    n := n - 1
+    exit n
+}
+exit countdown(3)
