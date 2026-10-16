@@ -1,6 +1,7 @@
 """Resolve names and check types before any LLVM IR is constructed."""
 
-from ast_nodes import ConstNode, DeclNode, FieldNode, InitNode, ParamNode, path
+from ast_nodes import (ConstNode, DeclNode, FieldNode, InitNode, ParamNode, path,
+                       FieldDeclNode, ThisNode, VarNode, CallNode, ReadNode, StringNode)
 from lexer import CompileError
 
 
@@ -28,6 +29,7 @@ class SemanticChecker:
         self.structs = {}  # Struct name -> StructNode, in declaration order.
         self.functions = {}  # Function name -> FnNode, collected before any body.
         self.function = None  # The FnNode whose body is checked, or None at the top level.
+        self.member_calls = []  # (caller, call), validated after mutation reaches a fixed point.
         self.top_level_names = set()  # Only for a clearer error inside a function.
 
     def fail(self, node, message):
@@ -38,6 +40,10 @@ class SemanticChecker:
         for frame in reversed(self.scopes):
             if node.name in frame:
                 return frame[node.name]
+        if self.function is not None and self.function.owner:
+            for field in self.structs[self.function.owner].fields:
+                if field.name == node.name:
+                    return field
         if self.function is not None and node.name in self.top_level_names:
             self.fail(node, f"variable '{node.name}' is not visible inside function '{self.function.name}'")
         self.fail(node, f"variable '{node.name}' is used before its declaration")
@@ -81,11 +87,28 @@ class SemanticChecker:
                 self.check_type(param.type_name, param)
             self.check_type(function.result_type, function)
             self.functions[function.name] = function
-        for function in node.functions:
+        methods = [method for struct in node.structs for method in struct.methods]
+        for method in methods:
+            for param in method.params:
+                self.check_type(param.type_name, param)
+            self.check_type(method.result_type, method)
+        for function in [*methods, *node.functions]:
             function.accept(self)
         for statement in node.statements:
             statement.accept(self)
         node.exit.accept(self)
+        # Propagate receiver effects, including cycles, after checking every body.
+        changed = True
+        while changed:
+            changed = False
+            for caller, call in self.member_calls:
+                if (caller is not None and caller.owner and not caller.mutating
+                        and call.function.mutating and self.on_this(call.receiver)):
+                    caller.mutating = True
+                    changed = True
+        for _, call in self.member_calls:
+            if call.function.mutating:
+                self.check_mutable_receiver(call)
         return node
 
     def visit_struct(self, node):
@@ -99,6 +122,14 @@ class SemanticChecker:
             if field.type_name == node.name:
                 self.fail(field, f"struct '{node.name}' cannot contain itself")
             self.check_type(field.type_name, field)  # Only the structs above are known.
+        field_names = set(names)
+        for method in node.methods:
+            if method.name in field_names:
+                self.fail(method, f"'{method.name}' is already the name of a field in '{node.name}'")
+            if method.name in names:
+                self.fail(method, f"member function '{method.name}' is declared twice in '{node.name}'")
+            names.add(method.name)
+            method.owner = node.name
         self.structs[node.name] = node
 
     def visit_fn(self, node):
@@ -190,8 +221,12 @@ class SemanticChecker:
         while isinstance(target, FieldNode):
             links.append(target)
             target = target.base
+        if not isinstance(target, VarNode):
+            self.fail(node, "cannot assign to a temporary call result")
         root = target.decl
         written = path(node.target)
+        if isinstance(root, FieldDeclNode):
+            self.function.mutating = True
         if isinstance(root, ParamNode):
             self.fail(node, f"cannot assign to '{written}': '{node.name}' is a parameter")
         if not root.mutable:
@@ -248,6 +283,9 @@ class SemanticChecker:
         base = node.base.accept(self)
         struct = self.structs.get(base)
         if struct is None:
+            if self.temporary(node.base):
+                raise CompileError(node.line, node.dot_column or node.column,
+                                   f"call result of type {base} is not a struct")
             self.fail(node, f"'{path(node.base)}' is {base}, it has no field '{node.name}'")
         for index, field in enumerate(struct.fields):
             if field.name == node.name:
@@ -255,10 +293,50 @@ class SemanticChecker:
                 return node.type
         self.fail(node, f"struct '{base}' has no field '{node.name}'")
 
+    def visit_this(self, node):
+        node.type = self.function.owner
+        return node.type
+
+    def member(self, type_name, name):
+        struct = self.structs.get(type_name)
+        return next((fn for fn in struct.methods if fn.name == name), None) if struct else None
+
     def visit_call(self, node):
-        function = node.function = self.functions.get(node.name)
-        if function is None:
+        function = self.member(self.function.owner, node.name) if self.function and self.function.owner else None
+        if function is not None:
+            receiver = ThisNode(node.line, node.column)
+            receiver.type = self.function.owner
+            node.receiver = receiver
+            node.function = function
+            self.member_calls.append((self.function, node))
+        else:
+            node.function = self.functions.get(node.name)
+        if node.function is None:
             self.fail(node, f"unknown function '{node.name}'")
+        return self.check_arguments(node)
+
+    def visit_member_call(self, node):
+        receiver = node.receiver
+        if isinstance(receiver, VarNode) and receiver.name in self.structs:
+            # A local bearing a type's name is still an object, if it resolves.
+            if not any(receiver.name in frame for frame in self.scopes) and not (
+                    self.function and self.function.owner and any(
+                        f.name == receiver.name for f in self.structs[self.function.owner].fields)):
+                self.fail(receiver, f"cannot call a member function on type '{receiver.name}'")
+        type_name = receiver.accept(self)
+        if type_name not in self.structs:
+            if isinstance(receiver, (CallNode, ReadNode)) or self.temporary(receiver):
+                raise CompileError(node.line, node.dot_column or node.column,
+                                   f"call result of type {type_name} is not a struct")
+            self.fail(node, f"type {type_name} has no member functions")
+        node.function = self.member(type_name, node.name)
+        if node.function is None:
+            self.fail(node, f"struct '{type_name}' has no member function '{node.name}'")
+        self.member_calls.append((self.function, node))
+        return self.check_arguments(node)
+
+    def check_arguments(self, node):
+        function = node.function
         if len(node.args) != len(function.params):
             self.fail(node, f"function '{node.name}' takes {plural(len(function.params), 'argument')}, "
                             f"but {len(node.args)} {'is' if len(node.args) == 1 else 'are'} given")
@@ -268,6 +346,42 @@ class SemanticChecker:
                 self.fail(arg, f"argument {number} of '{node.name}' must be {param.type_name}, got {have}")
         node.type = function.result_type
         return node.type
+
+    def root(self, node):
+        while isinstance(node, FieldNode):
+            node = node.base
+        return node
+
+    def temporary(self, node):
+        return isinstance(self.root(node), (CallNode, ReadNode))
+
+    def on_this(self, node):
+        root = self.root(node)
+        return isinstance(root, ThisNode) or (isinstance(root, VarNode) and
+                                             isinstance(root.decl, FieldDeclNode))
+
+    def check_mutable_receiver(self, call):
+        receiver = call.receiver
+        # Every link of a temporary result belongs to its disposable copy.
+        if self.temporary(receiver):
+            return
+        links = []
+        while isinstance(receiver, FieldNode):
+            links.append(receiver)
+            receiver = receiver.base
+        if isinstance(receiver, VarNode) and not receiver.decl.mutable:
+            self.fail(call, f"cannot call mutating member '{call.name}': '{path(receiver)}' is not mut")
+        for link in reversed(links):
+            if not self.structs[link.base.type].fields[link.index].mutable:
+                self.fail(call, f"cannot call mutating member '{call.name}': '{path(link)}' is not mut")
+
+    def visit_read(self, node):
+        node.type = "i32"
+        return node.type
+
+    def visit_print(self, node):
+        if not isinstance(node.value, StringNode):
+            node.value.accept(self)
 
     def visit_const(self, node):
         digits = node.value.lstrip("0") or "0"

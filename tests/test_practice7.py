@@ -1,6 +1,9 @@
 """Practice 7 contracts: isolated variants, fixed-point analysis and required IR."""
 from pathlib import Path
 import unittest
+import shutil
+import subprocess
+import tempfile
 
 import src_path  # noqa: F401
 from lexer import CompileError, lex
@@ -135,6 +138,7 @@ exit w.run()'''
         self.assert_error(source, "'w' is not mut")
         tree = checked(source.replace('W w{', 'W mut w{'))
         self.assertTrue(tree.structs[1].methods[0].mutating)
+        self.assert_error(source.replace('P mut p', 'P p'), "'p' is not mut")
 
     def test_bonus_temporary_assignment_and_scalar_continuation(self):
         source = '''struct P
@@ -150,6 +154,31 @@ make().x := 2
 exit 0'''
         self.assert_error(source, 'temporary', 10, 1)
         self.assert_error('exit read().x', 'not a struct', 1, 12)
+
+    def test_literal_print_preserves_all_allowed_bytes(self):
+        source = b'print("raw % \x00 \xff \\n")\nexit 0'
+        module = compile_program(source)
+        llvm.parse_assembly(str(module)).verify()
+        clang = shutil.which('clang')
+        self.assertIsNotNone(clang, 'clang is required for end-to-end tests')
+        with tempfile.TemporaryDirectory() as directory:
+            ir_file, program = Path(directory)/'out.ll', Path(directory)/'program'
+            ir_file.write_text(str(module))
+            build = subprocess.run([clang, str(ir_file), '-o', str(program)], capture_output=True)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            run = subprocess.run([str(program)], capture_output=True, input=b'', timeout=10)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.stdout, b'raw % \x00 \xff \\n\nProgram exit with result 0\n')
+
+    def test_generated_member_names_with_underscores_are_unique(self):
+        source = P.replace('struct P', 'struct A_B').replace('fn f', 'fn C')
+        source += P.replace('struct P', 'struct A').replace('fn f', 'fn B_C')
+        source += 'A_B mut p{1}\nA mut q{2}\nprint(p.C(3))\nexit q.B_C(4)'
+        module = llvm.parse_assembly(str(compile_program(source.encode())))
+        module.verify()
+        names = [f.name for f in module.functions if f.name.startswith('A_B_C')]
+        self.assertEqual(len(names), 2)
+        self.assertEqual(len(set(names)), 2)
 
     def test_required_ir_contracts(self):
         source = (ROOT/'tests/ok/practice7_members.txt').read_bytes()

@@ -67,12 +67,13 @@ class FieldDeclNode(Node):
 class StructNode(Node):
     name: str
     fields: list[FieldDeclNode]
+    methods: list["MemberFnNode"] = field(default_factory=list)
 
     def label(self):
         return f"Struct {self.name}"
 
     def children(self):
-        return tuple(self.fields)
+        return (*self.fields, *self.methods)
 
     def accept(self, visitor):
         return visitor.visit_struct(self)
@@ -86,6 +87,9 @@ class ParamNode(Node):
     type_name: str
     mutable: bool = field(default=False, init=False)
 
+    def label(self):
+        return f"Param {self.name} {self.type_name}"
+
 
 @dataclass
 class FnNode(Node):
@@ -93,6 +97,8 @@ class FnNode(Node):
     params: list[ParamNode]
     result_type: str
     body: "BlockNode"
+    owner: str | None = field(default=None, init=False, repr=False)
+    mutating: bool = field(default=False, init=False)
 
     def label(self):
         params = ", ".join(f"{param.type_name} {param.name}" for param in self.params)
@@ -255,7 +261,7 @@ class NotNode(ExprNode):
 @dataclass
 class VarNode(ExprNode):
     name: str
-    decl: DeclNode | ParamNode | None = field(default=None, init=False, repr=False)
+    decl: DeclNode | ParamNode | FieldDeclNode | None = field(default=None, init=False, repr=False)
 
     def label(self):
         return f"Var {self.name}"
@@ -288,11 +294,12 @@ class BoolNode(ExprNode):
 
 @dataclass
 class FieldNode(ExprNode):
-    """base.name; the position is the field name. The checker sets index."""
+    """base.name, including struct call results; the checker sets index."""
 
-    base: "VarNode | FieldNode"
+    base: ExprNode
     name: str
     index: int | None = field(default=None, init=False, repr=False)
+    dot_column: int | None = field(default=None, init=False, repr=False)
 
     def label(self):
         return f"Field {self.name}"
@@ -324,4 +331,68 @@ def path(node: "VarNode | FieldNode") -> str:
     """The source text of a field chain: c.center.x."""
     if isinstance(node, FieldNode):
         return f"{path(node.base)}.{node.name}"
+    if isinstance(node, CallNode):
+        return f"{node.name}(...)"
     return node.name
+
+
+@dataclass
+class MemberFnNode(FnNode):
+    def label(self):
+        return f"MemberFn {self.name} -> {self.result_type}"
+
+    def children(self):
+        return (*self.params, self.body)
+
+
+@dataclass
+class ThisNode(ExprNode):
+    """Internal receiver; the source language cannot name this object."""
+    def accept(self, visitor):
+        return visitor.visit_this(self)
+
+
+@dataclass
+class MemberCallNode(CallNode):
+    receiver: ExprNode
+    dot_column: int | None = field(default=None, init=False, repr=False)
+
+    def label(self):
+        return f"MemberCall {self.name}"
+
+    def children(self):
+        return (self.receiver, *self.args)
+
+    def accept(self, visitor):
+        return visitor.visit_member_call(self)
+
+
+@dataclass
+class ReadNode(ExprNode):
+    def label(self):
+        return "Read"
+
+    def accept(self, visitor):
+        return visitor.visit_read(self)
+
+
+@dataclass
+class StringNode(ExprNode):
+    value: str
+
+    def label(self):
+        return f"String {self.value!r}"
+
+
+@dataclass
+class PrintNode(StmtNode):
+    value: ExprNode
+
+    def label(self):
+        return "Print"
+
+    def children(self):
+        return (self.value,)
+
+    def accept(self, visitor):
+        return visitor.visit_print(self)

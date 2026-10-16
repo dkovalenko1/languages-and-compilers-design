@@ -7,7 +7,7 @@ import sys
 from llvmlite import ir
 import llvmlite.binding as llvm
 
-from ast_nodes import FieldNode, InitNode
+from ast_nodes import FieldNode, InitNode, FieldDeclNode, VarNode, ThisNode, StringNode, CallNode
 from lexer import CompileError, lex
 from parser import Parser
 from semantic import SemanticChecker
@@ -21,7 +21,7 @@ FN_PREFIX = "fn."  # '.' cannot appear in a source name, so no prefixed name mee
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="LLVM Compiler for practice 6")
+    parser = argparse.ArgumentParser(description="LLVM Compiler for practice 7")
     parser.add_argument("--ast", action="store_true", help="Print the syntax tree without writing IR")
     parser.add_argument("source", type=Path, help="Path to the source program")
     parser.add_argument("output", type=Path, nargs="?", help="Path to the output LLVM IR file")
@@ -43,10 +43,15 @@ class CodeGen:
     """Emit IR from a checked tree, with no source-language validation."""
 
     def __init__(self):
-        self.module = ir.Module(name="practice6")
+        self.module = ir.Module(name="practice7", context=ir.Context())
         self.module.triple = llvm.get_default_triple()
         self.types = dict(TYPES)  # Source type name -> LLVM type; structs are added in order.
         self.field_types = {}  # Struct name -> its fields' source type names, by index.
+        self.field_names = {}
+        self.field_indices = {}
+        self.strings = {}
+        self.this = None
+        self.scanf = None
         self.functions = {}  # Id of an FnNode -> its ir.Function.
         self.function = self.entry = self.builder = self.result_type = None
         self.printf = ir.Function(
@@ -66,6 +71,7 @@ class CodeGen:
         self.entry = function.append_basic_block("entry")
         self.builder = ir.IRBuilder(self.entry)
         self.last_alloca = None
+        self.this = None
 
     def global_string(self, name: str, text: bytes):
         array_type = ir.ArrayType(I8, len(text))
@@ -100,14 +106,21 @@ class CodeGen:
             struct.accept(self)
         # Every function exists in the module before any body is built, so
         # a call may refer to a function defined below it.
-        for fn in node.functions:
-            signature = ir.FunctionType(self.types[fn.result_type],
-                                        [self.types[param.type_name] for param in fn.params])
-            function = ir.Function(self.module, signature, name=FN_PREFIX + fn.name)
-            for argument, param in zip(function.args, fn.params):
+        functions = [fn for struct in node.structs for fn in struct.methods] + node.functions
+        for fn in functions:
+            parameters = [self.types[param.type_name] for param in fn.params]
+            if fn.owner:
+                parameters.insert(0, self.types[fn.owner].as_pointer())
+            signature = ir.FunctionType(self.types[fn.result_type], parameters)
+            name = fn.owner + "_" + fn.name if fn.owner else FN_PREFIX + fn.name
+            function = ir.Function(self.module, signature, name=self.module.get_unique_name(name))
+            arguments = list(function.args)
+            if fn.owner:
+                arguments.pop(0).name = "this"
+            for argument, param in zip(arguments, fn.params):
                 argument.name = param.name
             self.functions[id(fn)] = function
-        for fn in node.functions:
+        for fn in functions:
             fn.accept(self)
         self.begin_function(ir.Function(self.module, ir.FunctionType(I32, []), name="main"), None)
         for statement in node.statements:
@@ -120,11 +133,17 @@ class CodeGen:
         struct_type.set_body(*(self.types[field.type_name] for field in node.fields))
         self.types[node.name] = struct_type
         self.field_types[node.name] = [field.type_name for field in node.fields]
+        self.field_names[node.name] = [field.name for field in node.fields]
+        for index, field in enumerate(node.fields):
+            self.field_indices[id(field)] = index
 
     def visit_fn(self, node):
         function = self.functions[id(node)]
         self.begin_function(function, node.result_type)
-        for argument, param in zip(function.args, node.params):
+        arguments = list(function.args)
+        if node.owner:
+            self.this = arguments.pop(0)
+        for argument, param in zip(arguments, node.params):
             slot = self.entry_alloca(param.type_name, param.name + ".slot")
             self.builder.store(argument, slot)
             self.slots[id(param)] = slot
@@ -196,7 +215,17 @@ class CodeGen:
         if isinstance(node, FieldNode):
             return self.builder.gep(self.address(node.base), [ZERO, ir.Constant(I32, node.index)],
                                     inbounds=True)
-        return self.slots[id(node.decl)]
+        if isinstance(node, ThisNode):
+            return self.this
+        if isinstance(node, VarNode):
+            if isinstance(node.decl, FieldDeclNode):
+                return self.builder.gep(self.this, [ZERO, ir.Constant(I32, self.field_indices[id(node.decl)])],
+                                        inbounds=True)
+            return self.slots[id(node.decl)]
+        value = node.accept(self)
+        slot = self.entry_alloca(node.type, "temporary")
+        self.builder.store(value, slot)
+        return slot
 
     def visit_assign(self, node):
         value = node.value.accept(self)
@@ -240,15 +269,80 @@ class CodeGen:
         return self.builder.not_(node.operand.accept(self))
 
     def visit_var(self, node):
-        return self.builder.load(self.slots[id(node.decl)])
+        return self.builder.load(self.address(node))
 
     def visit_field(self, node):
+        base = node.base
+        while isinstance(base, FieldNode):
+            base = base.base
+        if isinstance(base, CallNode):
+            return self.builder.extract_value(node.base.accept(self), node.index)
         return self.builder.load(self.address(node))
 
     def visit_call(self, node):
+        # Evaluate the receiver before arguments, once, and retain its address.
+        receiver = [self.address(node.receiver)] if node.function.owner else []
         args = [self.coerce(arg.accept(self), arg.type, param.type_name)
                 for arg, param in zip(node.args, node.function.params)]
-        return self.builder.call(self.functions[id(node.function)], args)
+        return self.builder.call(self.functions[id(node.function)], receiver + args)
+
+    def visit_member_call(self, node):
+        return self.visit_call(node)
+
+    def visit_this(self, node):
+        return self.builder.load(self.this)
+
+    def text_pointer(self, text: bytes):
+        if text not in self.strings:
+            self.strings[text] = self.global_string("text." + str(len(self.strings)), text + b"\0")
+        return self.builder.bitcast(self.strings[text], I8.as_pointer())
+
+    def emit_text(self, text: bytes):
+        # Literals allow arbitrary bytes, including NUL, which terminates %s.
+        # Emit those bytes with %c and keep the remaining text behind %s.
+        for index, part in enumerate(text.split(b"\0")):
+            if index:
+                self.builder.call(self.printf, [self.text_pointer(b"%c"), ZERO])
+            self.builder.call(self.printf, [self.text_pointer(b"%s"), self.text_pointer(part)])
+
+    def print_value(self, value, type_name):
+        if type_name == "bool":
+            value = self.builder.select(value,
+                                        self.builder.bitcast(self.true_text, I8.as_pointer()),
+                                        self.builder.bitcast(self.false_text, I8.as_pointer()))
+            fmt = b"%s"
+        else:
+            fmt = b"%d" if type_name == "i32" else b"%lld"
+        self.builder.call(self.printf, [self.text_pointer(fmt), value])
+
+    def print_struct(self, address, type_name):
+        self.emit_text(type_name.encode("ascii") + b"{")
+        for index, (name, field_type) in enumerate(zip(self.field_names[type_name], self.field_types[type_name])):
+            self.emit_text(((", " if index else "") + name + ": ").encode("ascii"))
+            field = self.builder.gep(address, [ZERO, ir.Constant(I32, index)], inbounds=True)
+            if field_type in TYPES:
+                self.print_value(self.builder.load(field), field_type)
+            else:
+                self.print_struct(field, field_type)
+        self.emit_text(b"}")
+
+    def visit_print(self, node):
+        value = node.value
+        if isinstance(value, StringNode):
+            self.emit_text(value.value.encode("latin1"))
+        elif value.type not in TYPES:
+            self.print_struct(self.address(value), value.type)
+        else:
+            self.print_value(value.accept(self), value.type)
+        self.emit_text(b"\n")
+
+    def visit_read(self, node):
+        if self.scanf is None:
+            self.scanf = ir.Function(self.module, ir.FunctionType(I32, [I8.as_pointer()], var_arg=True),
+                                     name="scanf")
+        slot = self.entry_alloca("i32", "read.slot")
+        self.builder.call(self.scanf, [self.text_pointer(b"%d"), slot])
+        return self.builder.load(slot)
 
     def visit_const(self, node):
         return ir.Constant(TYPES[node.type], int(node.value.lstrip("0") or "0"))

@@ -75,11 +75,20 @@ def lex(data: bytes) -> list[list[Token]]:
                 state, start_line, start_col = "BANG", line, col
             elif b == ord("-"):
                 state, start_line, start_col = "MINUS", line, col
+            elif b == ord('"'):
+                start, start_line, start_col = i + 1, line, col
+                state = "STRING"
             elif b in SINGLE_BYTE:
                 tokens.append(Token(SINGLE_BYTE[b], chr(b), line, col))
             else:
                 byte_text = repr(chr(b)) if 32 <= b <= 126 else f"0x{b:02x}"
                 raise CompileError(line, col, f"unexpected byte {byte_text}")
+        elif state == "STRING":
+            if b is None or b == 10:
+                raise CompileError(start_line, start_col, "unterminated string literal")
+            if b == ord('"'):
+                tokens.append(Token("string", data[start:i].decode("latin1"), start_line, start_col))
+                state = "START"
         elif state == "IDENT":
             if b is not None and (is_alpha(b) or is_digit(b)):
                 pass
