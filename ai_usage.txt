@@ -61,3 +61,26 @@ Use and review:
 
 The compiler still builds every instruction through llvmlite.ir, and IR text
 exists only as str(module).
+
+
+Practice 7 AI usage log (in progress)
+
+Tool: Codex (gpt-6.1-sol) in T3 Code.
+Prompts: explain w07-practice.pdf; design a compact test suite and its file
+requirements; implement tests before code, commit after each verified step,
+then report verification and submission readiness.
+
+Tests-first step:
+- Read the supplied PDF and the existing parser, semantic checker, LLVM
+  generator and both runners. Created practice-7 from the clean practice-6.
+- Authored 12 successful and 10 rejected fixtures, including the two main
+  PDF examples and the optional result-46 example. Expected outputs and
+  source positions were derived from the programs before implementation.
+- Added parameterized name, typing, mutation, built-in and string checks,
+  an independently authored AST snapshot, and focused IR assertions.
+- Updated both runners to pass neighboring .in input or empty stdin.
+- Superseded the previous parser rejection of fields after calls because
+  this practice implements the optional task. Other previous tests remain.
+- AI-generated test sources are retained after manual source/expectation
+  review. This commit intentionally specifies functionality not yet present;
+  it is expected to fail until the implementation step.

@@ -1,0 +1,23 @@
+struct Box
+{
+    i32 x
+    fn combine := (i32 a, i64 b) -> i64
+    {
+        i64 n{a * 10 + b + x}
+        exit n
+    }
+    fn yes := () -> bool
+    {
+        exit true
+    }
+    fn copy := () -> Box
+    {
+        Box b{x}
+        exit b
+    }
+}
+Box b{3}
+print(b.combine(2, 4))
+print(b.yes())
+Box c{b.copy()}
+exit c.x

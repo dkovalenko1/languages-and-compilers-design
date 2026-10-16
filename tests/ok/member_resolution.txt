@@ -1,0 +1,38 @@
+struct Point
+{
+    i32 x
+    fn shift := () -> i32
+    {
+        exit later()
+    }
+    fn later := () -> i32
+    {
+        i32 r{x + fallback()}
+        exit r
+    }
+}
+struct Other
+{
+    i32 x
+    fn shift := () -> i32
+    {
+        exit x
+    }
+}
+fn later := () -> i32
+{
+    exit 1000
+}
+fn fallback := () -> i32
+{
+    exit 2
+}
+fn Point_shift := () -> i32
+{
+    exit 40
+}
+Point p{3}
+Other o{8}
+print(p.shift())
+print(o.shift())
+exit Point_shift()

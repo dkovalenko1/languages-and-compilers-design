@@ -31,8 +31,8 @@ SUITES = [
 ]
 
 
-def run(command, timeout=60):
-    return subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+def run(command, timeout=60, input=None):
+    return subprocess.run(command, capture_output=True, text=True, timeout=timeout, input=input)
 
 
 def compiler(*args):
@@ -46,7 +46,9 @@ def check_valid(source: Path, expected: Path, directory: Path) -> str | None:
     if result.returncode != 0:
         return "did not compile: " + result.stderr.strip()
     try:
-        executed = run([LLI, str(output)], timeout=10)
+        stdin = source.with_suffix(".in")
+        executed = run([LLI, str(output)], timeout=10,
+                       input=stdin.read_text() if stdin.exists() else "")
     except subprocess.TimeoutExpired:
         return "lli did not finish within 10 seconds"
     if executed.returncode != 0:

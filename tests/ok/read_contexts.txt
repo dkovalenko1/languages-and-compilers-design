@@ -1,0 +1,26 @@
+struct Box
+{
+    i32 x
+    fn input := () -> i32
+    {
+        exit read()
+    }
+}
+fn echo := (i32 x) -> i32
+{
+    print(x)
+    exit read()
+}
+i32 a{read()}
+print(a)
+i32 b{echo(read())}
+print(b)
+i32 mut i{0}
+while i != 2
+{
+    print(read())
+    i := i + 1
+}
+Box box{0}
+print(box.input())
+exit read()

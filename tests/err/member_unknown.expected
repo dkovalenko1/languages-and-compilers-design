@@ -1,0 +1,1 @@
+compilation error: line 17:8: struct 'Point' has no member function 'missing'

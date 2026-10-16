@@ -46,7 +46,9 @@ class CompilerTests(unittest.TestCase):
                 linked = subprocess.run([clang, str(output), "-o", str(program)],
                                         capture_output=True, text=True)
                 self.assertEqual(linked.returncode, 0, linked.stderr)
-                run = subprocess.run([str(program)], capture_output=True, text=True, timeout=10)
+                stdin = source.with_suffix(".in")
+                run = subprocess.run([str(program)], capture_output=True, text=True, timeout=10,
+                                     input=stdin.read_text() if stdin.exists() else "")
                 self.assertEqual(run.returncode, 0, run.stderr)
                 self.assertEqual(run.stderr, "")
                 expected = source.with_suffix(".expected" if source.parent.name == "ok" else ".out")
