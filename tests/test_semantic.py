@@ -154,6 +154,7 @@ class SemanticTests(unittest.TestCase):
             (point + b"P p{1, 2}\nexit p", "line 7:6: the program must exit with i32, i64 or bool, got P"),
             (point + b"P p{1, 2}\np.x := 3\nexit p.x", "line 7:1: cannot assign to 'p.x': 'p' is not mut"),
             (b"i32 a{1}\ni32 b{a.x}\nexit b", "line 2:9: 'a' is i32, it has no field 'x'"),
+            (b"i32 a{{1}}\nexit a", "line 1:7: a {} cannot initialise 'a' of type i32"),
             (b"i32 a{1, 2}\nexit a", "line 1:6: 'a' of type i32 takes one value, but 2 are given"),
         ]
         for source, expected in cases:

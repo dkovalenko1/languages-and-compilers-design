@@ -231,7 +231,7 @@ class Parser:
             raise self.error(message)
         return self.eat()
 
-    def parse_decl(self) -> DeclNode:  # decl ::= type [ "mut" ] ident "{" expr { "," expr } "}"
+    def parse_decl(self) -> DeclNode:  # decl ::= type [ "mut" ] ident "{" value { "," value } "}"
         type_token = self.eat()
         mutable = self.peek() is not None and self.peek().kind == "specifier"
         if mutable:
@@ -244,11 +244,13 @@ class Parser:
         return DeclNode(name.line, name.column, name.text, type_token.text, mutable, init,
                         type_token.line, type_token.column)
 
-    def parse_init(self) -> InitNode:  # "{" expr { "," expr } "}"
+    def parse_init(self) -> InitNode:  # init ::= "{" value { "," value } "}" ; value ::= expr | init
         brace = self.eat()
         items = []
         while True:
-            items.append(self.parse_expr())
+            token = self.peek()
+            items.append(self.parse_init() if token is not None and token.kind == "lbrace"
+                         else self.parse_expr())
             if self.peek() is None:
                 raise self.error("expected '}', found end of line")
             if self.peek().kind != "comma":

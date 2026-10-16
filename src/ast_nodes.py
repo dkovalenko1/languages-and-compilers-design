@@ -107,9 +107,12 @@ class FnNode(Node):
 
 @dataclass
 class InitNode(Node):
-    """The values between '{' and '}': one per field, or a single value. The position is the '{'."""
+    """The values between '{' and '}': one per field, or a single value.
 
-    items: list["ExprNode"]
+    The position is the '{'. A value may be another InitNode for a struct field.
+    """
+
+    items: list["ExprNode | InitNode"]
     copy: bool = field(default=False, init=False, repr=False)  # One value of the struct's own type.
 
     def label(self):

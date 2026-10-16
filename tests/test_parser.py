@@ -170,13 +170,12 @@ class ParserTests(unittest.TestCase):
 
     def test_struct_init_and_field_chain_dump(self):
         source = (b"struct P\n{\n    i32 mut x\n}\nstruct C\n{\n    P mut p\n}\n"
-                  b"P p{1}\nC mut c{p}\nc.p.x := 2\nexit c.p.x\n")
+                  b"C mut c{{1}}\nc.p.x := 2\nexit c.p.x\n")
         self.assertEqual(self.parse(source).dump(), "\n".join([
             "Program",
             "  Struct P", "    FieldDecl x i32 mut",
             "  Struct C", "    FieldDecl p P mut",
-            "  Decl p P const", "    Const 1",
-            "  Decl c C mut", "    Var p",
+            "  Decl c C mut", "    Init", "      Const 1",
             "  Assign c.p.x", "    Const 2",
             "  Exit", "    Field x", "      Field p", "        Var c",
         ]))

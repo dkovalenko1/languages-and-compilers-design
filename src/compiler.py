@@ -7,7 +7,7 @@ import sys
 from llvmlite import ir
 import llvmlite.binding as llvm
 
-from ast_nodes import FieldNode
+from ast_nodes import FieldNode, InitNode
 from lexer import CompileError, lex
 from parser import Parser
 from semantic import SemanticChecker
@@ -177,8 +177,19 @@ class CodeGen:
             fields = self.field_types[node.type_name]
             for index, item in enumerate(init.items):
                 address = self.builder.gep(slot, [ZERO, ir.Constant(I32, index)], inbounds=True)
-                self.builder.store(self.coerce(item.accept(self), item.type, fields[index]), address)
+                self.builder.store(self.init_value(item, fields[index]), address)
         self.slots[id(node)] = slot
+
+    def init_value(self, item, type_name: str):
+        """The value of one field: an expression, or a nested {} built with insertvalue."""
+        if not isinstance(item, InitNode):
+            return self.coerce(item.accept(self), item.type, type_name)
+        if item.copy:  # An inner {} follows the outer rules: {p} copies p.
+            return item.items[0].accept(self)
+        value = ir.Constant(self.types[type_name], ir.Undefined)
+        for index, (inner, field_type) in enumerate(zip(item.items, self.field_types[type_name])):
+            value = self.builder.insert_value(value, self.init_value(inner, field_type), index)
+        return value
 
     def address(self, node):
         """The slot of a variable, or a gep through the indices of a field chain."""

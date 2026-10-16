@@ -1,6 +1,6 @@
 """Resolve names and check types before any LLVM IR is constructed."""
 
-from ast_nodes import ConstNode, DeclNode, FieldNode, ParamNode, path
+from ast_nodes import ConstNode, DeclNode, FieldNode, InitNode, ParamNode, path
 from lexer import CompileError
 
 
@@ -151,6 +151,8 @@ class SemanticChecker:
                 self.fail(node.init, f"'{node.name}' of type {node.type_name} takes one value, "
                                      f"but {len(node.init.items)} are given")
             value = node.init.items[0]
+            if isinstance(value, InitNode):
+                self.fail(value, f"a {{}} cannot initialise '{node.name}' of type {node.type_name}")
             value.accept(self)
             self.check_assignable(value, node.type_name, node, f"initialise '{node.name}'")
         frame[node.name] = node
@@ -159,7 +161,7 @@ class SemanticChecker:
         """One value per field in order, or one value of the struct's own type (a copy)."""
         fields = self.structs[struct_name].fields
         items = init.items
-        if len(items) == 1:
+        if len(items) == 1 and not isinstance(items[0], InitNode):
             if items[0].accept(self) == struct_name:
                 init.copy = True
                 return
@@ -169,6 +171,12 @@ class SemanticChecker:
             self.fail(init, f"'{struct_name}' has {plural(len(fields), 'field')}, "
                             f"but {plural(len(items), 'value')} {'is' if len(items) == 1 else 'are'} given")
         for item, field in zip(items, fields):
+            if isinstance(item, InitNode):
+                if field.type_name not in self.structs:
+                    self.fail(item, f"a {{}} cannot initialise field '{struct_name}.{field.name}' "
+                                    f"of type {field.type_name}")
+                self.check_init(item, field.type_name)
+                continue
             if item.type is None:  # The single value above is typed already.
                 item.accept(self)
             self.check_assignable(item, field.type_name, item,

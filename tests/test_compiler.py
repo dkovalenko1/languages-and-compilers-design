@@ -155,6 +155,7 @@ class CompilerTests(unittest.TestCase):
         for struct, index in (("Shape", 1), ("Info", 2), ("Point", 1)):
             self.assertRegex(ir_text, rf'getelementptr inbounds %"{struct}", %"{struct}"\* %\S+, '
                                       rf'i32 0, i32 {index}\n')
+        self.assertNotIn("insertvalue", ir_text)  # Only a nested {} builds a struct value.
 
     def test_functions_are_prefixed_take_slots_and_return(self):
         ir_text = self.compiled_ir(FIXTURES / "ok" / "fn_runtime-names.txt")
@@ -170,6 +171,24 @@ class CompilerTests(unittest.TestCase):
         body = ir_text.split('define i32 @"fn.shiftedSum"(%"Point" %"p", i32 %"dx")\n{\nentry:\n')[1]
         self.assertEqual(body.splitlines()[:2], ['  %"p.slot" = alloca %"Point"', '  %"dx.slot" = alloca i32'])
         self.assertIn('store %"Point" %"p", %"Point"* %"p.slot"', body.split("}")[0])
+
+    def test_nested_init_builds_struct_values_with_insertvalue(self):
+        ir_text = self.compiled_ir(FIXTURES / "ok" / "struct_nested-init.txt")
+        self.assertRegex(ir_text, r'insertvalue %"Point" undef, i32 10, 0')
+        self.assertRegex(ir_text, r'insertvalue %"Circle" undef, %"Point" %\S+, 0')
+
+    @unittest.skipUnless(shutil.which("lli"), "lli is required to run the program")
+    def test_inner_braces_follow_the_outer_rules(self):
+        source = (b"struct Point\n{\n    i32 mut x\n    i32 mut y\n}\nstruct Circle\n{\n    Point center\n"
+                  b"    i64 mut radius\n}\nPoint p{4, 5}\nCircle c{{p}, 1}\nCircle d{{6, 7}, c.radius}\n"
+                  b"i64 result{c.center.y * 100 + d.center.x * 10 + d.radius}\nexit result\n")
+        with tempfile.TemporaryDirectory() as directory:
+            program, output = Path(directory) / "copy.txt", Path(directory) / "output.ll"
+            program.write_bytes(source)
+            result = self.compile(program, output)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            run = subprocess.run(["lli", str(output)], capture_output=True, text=True, timeout=10)
+        self.assertEqual(run.stdout, "Program exit with result 561\n")
 
     @unittest.skipUnless(shutil.which("opt"), "opt is required for the mem2reg check")
     def test_mem2reg_turns_both_arm_stores_into_a_phi(self):
