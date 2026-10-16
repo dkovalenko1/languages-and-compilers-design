@@ -60,13 +60,13 @@ class SemanticTests(unittest.TestCase):
     def test_types_and_resolved_declarations_are_recorded(self):
         tree = check(b"i32 a{10}\ni64 mut b{a}\nb := a + 3000000000\nbool c{b != a}\nexit c")
         a, b, assignment, c = tree.statements
-        self.assertEqual(a.init.type, "i32")
-        self.assertEqual(b.init.type, "i32")
-        self.assertIs(b.init.decl, a)
-        self.assertIs(assignment.decl, b)
+        self.assertEqual(a.init.items[0].type, "i32")
+        self.assertEqual(b.init.items[0].type, "i32")
+        self.assertIs(b.init.items[0].decl, a)
+        self.assertIs(assignment.target.decl, b)
         self.assertEqual(assignment.value.type, "i64")
         self.assertEqual(assignment.value.right.type, "i64")
-        self.assertEqual(c.init.type, "bool")
+        self.assertEqual(c.init.items[0].type, "bool")
         self.assertIs(tree.exit.value.decl, c)
 
     def test_scope_and_bool_errors_with_source_positions(self):
@@ -119,8 +119,72 @@ class SemanticTests(unittest.TestCase):
                      b"    i64 t{3}\n    a := a + 1\n}\ni32 t{4}\nexit t\n")
         if_node = tree.statements[2]
         self.assertEqual(if_node.condition.type, "bool")
-        self.assertIs(if_node.then_block.statements[1].decl, tree.statements[0])
+        self.assertIs(if_node.then_block.statements[1].target.decl, tree.statements[0])
         self.assertIs(tree.exit.value.decl, tree.statements[3])
+
+
+    def test_struct_and_function_errors_with_source_positions(self):
+        point = b"struct P\n{\n    i32 mut x\n    i32 mut y\n}\n"  # Five lines.
+        cases = [
+            (b"fn f := (i32 a, i32 b) -> i32\n{\n    exit a\n}\nexit f(1)",
+             "line 5:6: function 'f' takes 2 arguments, but 1 is given"),
+            (b"fn f := (i32 a) -> i32\n{\n    exit a\n}\nexit f(true)",
+             "line 5:8: argument 1 of 'f' must be i32, got bool"),
+            (b"fn f := () -> i64\n{\n    exit 1\n}\ni32 a{f()}\nexit a",
+             "line 5:5: cannot initialise 'a' of type i32 with a value of type i64"),
+            (b"exit g(1)", "line 1:6: unknown function 'g'"),
+            (b"Q q{1}\nexit 0", "line 1:1: unknown type 'Q'"),
+            (b"struct A\n{\n    B b\n}\nstruct B\n{\n    i32 x\n}\nexit 0", "line 3:7: unknown type 'B'"),
+            (b"struct A\n{\n    A a\n}\nexit 0", "line 3:7: struct 'A' cannot contain itself"),
+            (point + b"struct P\n{\n    i32 z\n}\nexit 0", "line 6:1: struct 'P' is declared twice"),
+            (b"struct P\n{\n    i32 x\n    bool x\n}\nexit 0", "line 4:10: field 'x' is declared twice in 'P'"),
+            (b"fn f := () -> i32\n{\n    exit 1\n}\nfn f := () -> i32\n{\n    exit 2\n}\nexit f()",
+             "line 5:4: function 'f' is declared twice"),
+            (b"fn f := (i32 a, bool a) -> i32\n{\n    exit 1\n}\nexit f(1, true)",
+             "line 1:22: parameter 'a' is declared twice"),
+            (b"fn f := () -> i32\n{\n    exit 1\n}\ni32 f{1}\nexit f",
+             "line 5:5: 'f' is already the name of a function"),
+            (point + b"P p{1, true}\nexit p.x",
+             "line 6:8: cannot initialise field 'P.y' of type i32 with a value of type bool"),
+            (point + b"P p{1}\nexit p.x", "line 6:4: 'P' has 2 fields, but 1 value is given"),
+            (point + b"P p{1, 2}\ni32 a{p + 1}\nexit a", "line 7:9: cannot apply '+' to P"),
+            (point + b"P p{1, 2}\nbool b{p == p}\nexit b", "line 7:10: cannot compare P with P"),
+            (point + b"P p{1, 2}\nif p\n{\n    exit 1\n}\nexit 0",
+             "line 7:1: the condition of 'if' must be bool, got P"),
+            (point + b"P p{1, 2}\nexit p", "line 7:6: the program must exit with i32, i64 or bool, got P"),
+            (point + b"P p{1, 2}\np.x := 3\nexit p.x", "line 7:1: cannot assign to 'p.x': 'p' is not mut"),
+            (b"i32 a{1}\ni32 b{a.x}\nexit b", "line 2:9: 'a' is i32, it has no field 'x'"),
+            (b"i32 a{1, 2}\nexit a", "line 1:6: 'a' of type i32 takes one value, but 2 are given"),
+        ]
+        for source, expected in cases:
+            with self.subTest(source=source), self.assertRaises(CompileError) as caught:
+                check(source)
+            self.assertEqual(str(caught.exception), "compilation error: " + expected)
+
+    def test_struct_and_function_programs_are_accepted(self):
+        sources = [
+            b"struct W\n{\n    i64 v\n}\nW w{1}\nexit w.v",  # An i32 value for an i64 field.
+            b"fn f := (i32 v) -> i64\n{\n    exit v\n}\nexit f(1)",  # An i32 exit of an i64 function.
+            b"fn f := () -> i32\n{\n    i32 a{2}\n    exit a\n}\ni32 a{1}\nexit f()",
+            b"fn f := (i32 n) -> bool\n{\n    if true\n    {\n        bool n{true}\n        exit n\n"
+            b"    }\n    exit false\n}\nexit f(1)",  # A parameter shadowed in a block.
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                self.assertIsNotNone(check(source))
+
+    def test_one_value_of_the_own_type_copies_the_object(self):
+        tree = check(b"struct P\n{\n    i32 x\n}\nstruct W\n{\n    P p\n}\n"
+                     b"P p{1}\nW w{p}\nW v{w}\nexit v.p.x")
+        p, w, v = tree.statements
+        self.assertEqual([p.init.copy, w.init.copy, v.init.copy], [False, False, True])
+
+    def test_field_chains_record_indices(self):
+        tree = check(b"struct P\n{\n    i32 mut x\n    i32 mut y\n}\nstruct C\n{\n    bool b\n"
+                     b"    P mut at\n}\nP p{1, 2}\nC mut c{true, p}\nc.at.y := 3\nexit c.at.y")
+        assignment, exit_node = tree.statements[2], tree.exit
+        for chain in (assignment.target, exit_node.value):
+            self.assertEqual((chain.index, chain.base.index, chain.type), (1, 1, "i32"))
 
 
 if __name__ == "__main__":

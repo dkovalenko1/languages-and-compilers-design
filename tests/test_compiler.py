@@ -107,13 +107,16 @@ class CompilerTests(unittest.TestCase):
             with self.subTest(program=source.name):
                 module = llvm.parse_assembly(self.compiled_ir(source))
                 module.verify()
-                main = module.get_function("main")
-                for index, block in enumerate(main.blocks):
-                    opcodes = [instruction.opcode for instruction in block.instructions]
-                    self.assertIn(opcodes[-1], terminators, block.name)
-                    self.assertEqual(sum(op in terminators for op in opcodes), 1, block.name)
-                    if index > 0:
-                        self.assertNotIn("alloca", opcodes, block.name)
+                for function in module.functions:
+                    if function.is_declaration:
+                        continue
+                    for index, block in enumerate(function.blocks):
+                        opcodes = [instruction.opcode for instruction in block.instructions]
+                        where = f"{function.name}:{block.name}"
+                        self.assertIn(opcodes[-1], terminators, where)
+                        self.assertEqual(sum(op in terminators for op in opcodes), 1, where)
+                        if index > 0:
+                            self.assertNotIn("alloca", opcodes, where)
 
     def test_nested_ifs_become_then_and_merge_blocks(self):
         module = llvm.parse_assembly(self.compiled_ir(FIXTURES / "ok" / "scope_warm-up.txt"))
@@ -141,6 +144,32 @@ class CompilerTests(unittest.TestCase):
         self.assertRegex(str(blocks["cond"][-1]), r'br i1 %\S+, label %"?body"?, label %"?end"?')
         self.assertRegex(str(blocks["body"][-1]), r'br label %"?cond"?')  # The back edge.
         self.assertEqual(blocks["end"][-1].opcode, "ret")
+
+    def test_structs_are_named_types_and_fields_are_gep_indices(self):
+        ir_text = self.compiled_ir(FIXTURES / "ok" / "struct_nested-chain.txt")
+        self.assertIn('%"Point" = type {i32, i32}', ir_text)
+        self.assertIn('%"Info" = type {i64, i1, %"Point"}', ir_text)
+        self.assertIn('%"Shape" = type {i1, %"Info", i32}', ir_text)
+        self.assertRegex(ir_text, r'%"s" = alloca %"Shape"')
+        # s.info.at.y walks the indices 1, 2, 1.
+        for struct, index in (("Shape", 1), ("Info", 2), ("Point", 1)):
+            self.assertRegex(ir_text, rf'getelementptr inbounds %"{struct}", %"{struct}"\* %\S+, '
+                                      rf'i32 0, i32 {index}\n')
+
+    def test_functions_are_prefixed_take_slots_and_return(self):
+        ir_text = self.compiled_ir(FIXTURES / "ok" / "fn_runtime-names.txt")
+        self.assertIn('define i32 @"fn.printf"(i32 %"x")', ir_text)
+        self.assertIn('define i32 @"fn.main"()', ir_text)
+        self.assertIn('declare i32 @"printf"(i8* %".1", ...)', ir_text)
+        self.assertIn('define i32 @"main"()', ir_text)
+        self.assertRegex(ir_text, r'call i32 @"fn\.printf"\(i32 41\)')
+        self.assertRegex(ir_text, r'call i32 @"fn\.main"\(\)')
+        self.assertIn("ret i32", ir_text)
+        # Parameters are stored into slots at the top of the function's own entry block.
+        ir_text = self.compiled_ir(FIXTURES / "ok" / "fn_struct-param.txt")
+        body = ir_text.split('define i32 @"fn.shiftedSum"(%"Point" %"p", i32 %"dx")\n{\nentry:\n')[1]
+        self.assertEqual(body.splitlines()[:2], ['  %"p.slot" = alloca %"Point"', '  %"dx.slot" = alloca i32'])
+        self.assertIn('store %"Point" %"p", %"Point"* %"p.slot"', body.split("}")[0])
 
     @unittest.skipUnless(shutil.which("opt"), "opt is required for the mem2reg check")
     def test_mem2reg_turns_both_arm_stores_into_a_phi(self):

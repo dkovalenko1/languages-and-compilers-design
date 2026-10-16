@@ -7,6 +7,7 @@ import sys
 from llvmlite import ir
 import llvmlite.binding as llvm
 
+from ast_nodes import FieldNode
 from lexer import CompileError, lex
 from parser import Parser
 from semantic import SemanticChecker
@@ -15,10 +16,12 @@ from terminal_output import print_error
 
 I1, I8, I32, I64 = ir.IntType(1), ir.IntType(8), ir.IntType(32), ir.IntType(64)
 TYPES = {"bool": I1, "i32": I32, "i64": I64}
+ZERO = ir.Constant(I32, 0)
+FN_PREFIX = "fn."  # '.' cannot appear in a source name, so no prefixed name meets the runtime's.
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="LLVM Compiler for practice 5")
+    parser = argparse.ArgumentParser(description="LLVM Compiler for practice 6")
     parser.add_argument("--ast", action="store_true", help="Print the syntax tree without writing IR")
     parser.add_argument("source", type=Path, help="Path to the source program")
     parser.add_argument("output", type=Path, nargs="?", help="Path to the output LLVM IR file")
@@ -40,11 +43,12 @@ class CodeGen:
     """Emit IR from a checked tree, with no source-language validation."""
 
     def __init__(self):
-        self.module = ir.Module(name="practice5")
+        self.module = ir.Module(name="practice6")
         self.module.triple = llvm.get_default_triple()
-        self.function = ir.Function(self.module, ir.FunctionType(I32, []), name="main")
-        self.entry = self.function.append_basic_block("entry")
-        self.builder = ir.IRBuilder(self.entry)
+        self.types = dict(TYPES)  # Source type name -> LLVM type; structs are added in order.
+        self.field_types = {}  # Struct name -> its fields' source type names, by index.
+        self.functions = {}  # Id of an FnNode -> its ir.Function.
+        self.function = self.entry = self.builder = self.result_type = None
         self.printf = ir.Function(
             self.module, ir.FunctionType(I32, [ir.PointerType(I8)], var_arg=True),
             name="printf",
@@ -53,8 +57,15 @@ class CodeGen:
         self.bool_fmt = self.global_string("bool_fmt", b"Program exit with result %s\n\0")
         self.true_text = self.global_string("bool_true", b"true\0")
         self.false_text = self.global_string("bool_false", b"false\0")
-        self.slots = {}  # Declaration identity -> LLVM stack slot.
+        self.slots = {}  # Declaration or parameter identity -> LLVM stack slot.
         self.last_alloca = None  # Slots stay in declaration order at the top of entry.
+
+    def begin_function(self, function: ir.Function, result_type: str | None):
+        """Point the builder at a new function's entry block; result_type None is main."""
+        self.function, self.result_type = function, result_type
+        self.entry = function.append_basic_block("entry")
+        self.builder = ir.IRBuilder(self.entry)
+        self.last_alloca = None
 
     def global_string(self, name: str, text: bytes):
         array_type = ir.ArrayType(I8, len(text))
@@ -75,7 +86,7 @@ class CodeGen:
             self.builder.position_at_start(self.entry)
         else:
             self.builder.position_after(self.last_alloca)
-        slot = self.last_alloca = self.builder.alloca(TYPES[type_name], name=name)
+        slot = self.last_alloca = self.builder.alloca(self.types[type_name], name=name)
         self.builder.position_at_end(current)
         return slot
 
@@ -85,10 +96,39 @@ class CodeGen:
         return value
 
     def visit_program(self, node):
+        for struct in node.structs:
+            struct.accept(self)
+        # Every function exists in the module before any body is built, so
+        # a call may refer to a function defined below it.
+        for fn in node.functions:
+            signature = ir.FunctionType(self.types[fn.result_type],
+                                        [self.types[param.type_name] for param in fn.params])
+            function = ir.Function(self.module, signature, name=FN_PREFIX + fn.name)
+            for argument, param in zip(function.args, fn.params):
+                argument.name = param.name
+            self.functions[id(fn)] = function
+        for fn in node.functions:
+            fn.accept(self)
+        self.begin_function(ir.Function(self.module, ir.FunctionType(I32, []), name="main"), None)
         for statement in node.statements:
             statement.accept(self)
         node.exit.accept(self)
         return self.module
+
+    def visit_struct(self, node):
+        struct_type = self.module.context.get_identified_type(node.name)
+        struct_type.set_body(*(self.types[field.type_name] for field in node.fields))
+        self.types[node.name] = struct_type
+        self.field_types[node.name] = [field.type_name for field in node.fields]
+
+    def visit_fn(self, node):
+        function = self.functions[id(node)]
+        self.begin_function(function, node.result_type)
+        for argument, param in zip(function.args, node.params):
+            slot = self.entry_alloca(param.type_name, param.name + ".slot")
+            self.builder.store(argument, slot)
+            self.slots[id(param)] = slot
+        node.body.accept(self)  # The body ends with exit, so its last block has a ret.
 
     def visit_block(self, node):
         for statement in node.statements:
@@ -127,19 +167,36 @@ class CodeGen:
         self.builder.position_at_end(end_bb)
 
     def visit_decl(self, node):
-        value = node.init.accept(self)
-        value = self.coerce(value, node.init.type, node.type_name)
         slot = self.entry_alloca(node.type_name, node.name)
-        self.builder.store(value, slot)
+        init = node.init
+        if node.type_name in TYPES or init.copy:
+            value = init.items[0]
+            self.builder.store(self.coerce(value.accept(self), value.type, node.type_name), slot)
+        else:
+            # An object is filled field by field through a gep at the field's index.
+            fields = self.field_types[node.type_name]
+            for index, item in enumerate(init.items):
+                address = self.builder.gep(slot, [ZERO, ir.Constant(I32, index)], inbounds=True)
+                self.builder.store(self.coerce(item.accept(self), item.type, fields[index]), address)
         self.slots[id(node)] = slot
+
+    def address(self, node):
+        """The slot of a variable, or a gep through the indices of a field chain."""
+        if isinstance(node, FieldNode):
+            return self.builder.gep(self.address(node.base), [ZERO, ir.Constant(I32, node.index)],
+                                    inbounds=True)
+        return self.slots[id(node.decl)]
 
     def visit_assign(self, node):
         value = node.value.accept(self)
-        value = self.coerce(value, node.value.type, node.decl.type_name)
-        self.builder.store(value, self.slots[id(node.decl)])
+        value = self.coerce(value, node.value.type, node.target.type)
+        self.builder.store(value, self.address(node.target))
 
     def visit_exit(self, node):
         value = node.value.accept(self)
+        if self.result_type is not None:  # In a function, exit returns its result.
+            self.builder.ret(self.coerce(value, node.value.type, self.result_type))
+            return
         if node.value.type == "bool":
             true_pointer = self.builder.bitcast(self.true_text, ir.PointerType(I8))
             false_pointer = self.builder.bitcast(self.false_text, ir.PointerType(I8))
@@ -173,6 +230,14 @@ class CodeGen:
 
     def visit_var(self, node):
         return self.builder.load(self.slots[id(node.decl)])
+
+    def visit_field(self, node):
+        return self.builder.load(self.address(node))
+
+    def visit_call(self, node):
+        args = [self.coerce(arg.accept(self), arg.type, param.type_name)
+                for arg, param in zip(node.args, node.function.params)]
+        return self.builder.call(self.functions[id(node.function)], args)
 
     def visit_const(self, node):
         return ir.Constant(TYPES[node.type], int(node.value.lstrip("0") or "0"))

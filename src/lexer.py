@@ -10,10 +10,12 @@ KEYWORDS = {
     b"mut": "specifier", b"exit": "exit",
     b"true": "boolean", b"false": "boolean",
     b"if": "if", b"else": "else", b"while": "while",
+    b"struct": "struct", b"fn": "fn",
 }
 SINGLE_BYTE = {
     ord("{"): "lbrace", ord("}"): "rbrace",
-    ord("+"): "plus", ord("-"): "minus", ord("*"): "star",
+    ord("+"): "plus", ord("*"): "star",
+    ord("."): "dot", ord(","): "comma", ord("("): "lparen", ord(")"): "rparen",
 }
 
 
@@ -43,7 +45,8 @@ def lex(data: bytes) -> list[list[Token]]:
 
     Spaces and tabs are discarded. Positions count bytes, starting at one.
     A byte ending an identifier or a number, or following a single '!', is
-    re-read in START. Braces are plain tokens; the parser pairs them.
+    re-read in START, and so is a byte after a '-' that does not start '->'.
+    Braces are plain tokens; the parser pairs them.
     """
     lines, tokens = [], []
     state, start, line, col = "START", 0, 1, 1
@@ -70,6 +73,8 @@ def lex(data: bytes) -> list[list[Token]]:
                 state, start_line, start_col = "EQUAL", line, col
             elif b == ord("!"):
                 state, start_line, start_col = "BANG", line, col
+            elif b == ord("-"):
+                state, start_line, start_col = "MINUS", line, col
             elif b in SINGLE_BYTE:
                 tokens.append(Token(SINGLE_BYTE[b], chr(b), line, col))
             else:
@@ -110,6 +115,12 @@ def lex(data: bytes) -> list[list[Token]]:
                 tokens.append(Token("not", "!", start_line, start_col))
                 continue
             tokens.append(Token("ne", "!=", start_line, start_col))
+        elif state == "MINUS":
+            state = "START"
+            if b != ord(">"):
+                tokens.append(Token("minus", "-", start_line, start_col))
+                continue
+            tokens.append(Token("arrow", "->", start_line, start_col))
         i += 1
         col += 1
     if tokens:
