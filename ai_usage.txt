@@ -1,68 +1,3 @@
-Practice 6 AI usage log
-
-Tool: Claude Code (Claude Opus 5.5) in the T3 Code app.
-
-User requests that directed the work:
-- Read the Practice 6 sheet and explain the tasks and what has to be created.
-- Design the test suite before any code: which edge cases structs and
-  functions introduce, what must be covered, what the fixture files must look
-  like, and how many tests give real coverage without dead weight.
-- Create the practice-6 branch, write the tests and the implementation,
-  commit after each finished and tested step, and report what was added and
-  how it was verified. Do not push.
-
-Use and review:
-- Test design came first. Claude listed the edge cases (field index
-  correctness with mixed field types, value semantics of copies, parameters
-  and results, the one-value copy versus the one-field struct, deep mut on a
-  whole-object :=, forward and mutual calls, top-level isolation, the runtime
-  name clash, the program order) and proposed 12 tests/ok and 11 tests/err
-  programs: the six of each named on the sheet, the three sheet examples
-  verbatim, and a few where the rule is subtle. The smaller cases became one
-  line each in the existing unittest tables instead of separate fixtures.
-- The user accepted the proposed decisions: a wrong number of values is
-  reported at the '{', an unknown field at the field name, a const link at
-  the start of the chain naming the link, a wrong argument count at the
-  function name, a wrong exit type at the exit operand; a variable may not
-  take a function's name; an i32 exit in an i64 function widens; structs
-  cannot be compared with == or !=.
-- Every expected result and line:column was worked out by hand before the
-  first run; all 23 fixtures and all new unittest positions matched.
-- Tasks 1-3 (one commit, because a struct can only be observed through the
-  '.' of Task 3 and a function through its call): new tokens struct, fn, '.',
-  ',', '(', ')', '->'; Struct, FieldDecl, Fn, Param, Init, Field and Call
-  nodes; the fixed program order in the parser; a struct table, a
-  signature pass before any body, a separate scope stack per body and the
-  mut-chain rules in the checker; named struct types, gep by index,
-  prefixed functions ("fn."), parameter slots in each entry block, ret and
-  call in the code generator.
-- Changed on purpose after the first draft: two messages were made more
-  precise than "used before its declaration" and "it is not mut":
-  "variable 'base' is not visible inside function 'bump'" and
-  "cannot assign to 'n': 'n' is a parameter".
-- The first version of an IR unit test parsed the module back with
-  llvmlite.binding and compared names, but LLVM renames types on reparse
-  (%Point.7); the test now checks the emitted str(module) text.
-- Additional task (its own commit): nested {} through the same check as the
-  outer {}, built with insertvalue. While restoring it, an inner {p} copy
-  (allowed, since the inner {} has the outer rules) crashed the code
-  generator; it was fixed and a unit test runs that program through lli.
-- Mutation checks: each of these deliberate bugs made a named fixture fail -
-  every gep at index 0, no function prefix, no deep-mut check on :=, no
-  check of the links of a chain, no i32 to i64 argument widening, and a
-  body that sees the top-level scope.
-- Verified both on macOS (LLVM 22) and in the Ubuntu 24.04 VM (LLVM 18,
-  llvmlite 0.49):
-  - python3 check.py passes 113/113, including the Practice 2-5 fixtures and
-    46 unit tests (with the opt mem2reg check in the VM).
-  - opt -passes=verify accepts every tests/ok program.
-  - lli prints true, 55, 28 and 36 for the sheet programs, and
-    full_compiler.sh builds and runs them natively.
-
-The compiler still builds every instruction through llvmlite.ir, and IR text
-exists only as str(module).
-
-
 Practice 7 AI usage log
 
 Tool: Codex (gpt-6.1-sol) in T3 Code.
@@ -82,8 +17,8 @@ Tests-first step:
 - Superseded the previous parser rejection of fields after calls because
   this practice implements the optional task. Other previous tests remain.
 - AI-generated test sources are retained after manual source/expectation
-  review. This commit intentionally specifies functionality not yet present;
-  it is expected to fail until the implementation step.
+  review. The tests-first commit intentionally specified functionality not
+  yet present and failed until the implementation step.
 
 Implementation and review:
 - Retained the AI-authored member AST nodes, postfix parser, field-aware
@@ -99,8 +34,9 @@ Implementation and review:
   bytes including NUL and non-UTF8, and ambiguous generated method names.
   Added the implicit mutating-call-through-const-field variant to the
   existing mutation table. No additional fixture programs were needed.
-- Updated grammar.ebnf and README with semantics, fixture conventions and
-  the exact demonstration commands.
+- Updated grammar.ebnf with the current language grammar. The initial
+  README update included semantics, fixture conventions and demonstration
+  commands; it was subsequently replaced by the landing page described below.
 
 Verification before the implementation commit:
 - Tests-first VM run: all 112 old fixtures passed; the 22 new fixtures and
@@ -126,3 +62,21 @@ Verification before the implementation commit:
 The work is committed locally on practice-7. Pushing, opening the PR into
 main with vovaskochko as reviewer, and showing the teacher remain submission
 actions; no PR has been opened by this session.
+
+Documentation follow-up:
+- User prompt: "README is a landing page, not the log of what we did.
+  Please clean it up, we should not have two segments for two practices
+  in in." Follow-up prompt: "update ai-usage".
+- Codex rewrote README as one landing page for the current compiler, with
+  setup, usage, a runnable language example, supported features, test-file
+  conventions and project layout. Removed the separate practice sections,
+  implementation history, grading/demo checklist and submission instructions.
+- Retained the AI-authored rewrite after checking every Markdown link and
+  referenced fixture path. Compiled the embedded example with llvmlite,
+  verified its LLVM IR, built it with Clang and checked its exact stdout:
+  5; Point{x: 5, y: 4}; Program exit with result 5 (each on its own line).
+- README cleanup was committed as 73b24b5. No compiler code changed, so the
+  full compiler suite was not rerun for that documentation-only edit.
+- Preserved the user's removal of the previous Practice 6 AI usage section.
+  Updated this log to record the README follow-up and make tests-first
+  wording historical. Reviewed the diff and ran git diff --check.
