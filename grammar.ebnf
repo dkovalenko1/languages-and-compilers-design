@@ -1,16 +1,15 @@
-(* Practice 6 grammar: the Practice 5 language with structs, functions,
-   field chains and calls.
+(* Practice 7 grammar: structs, global/member functions, I/O and call chains.
    The lexer returns one token vector per line. NL is the boundary between
    vectors (or the end of the final vector); it is not a stored Token. Blank
    lines may stand anywhere and carry nothing. '{', '}' and 'else' stand alone
    on their lines; the parser, not the lexer, pairs the braces. *)
 
 program    ::= { struct } { fn } { statement } exit_line ;
-struct     ::= "struct" ident NL "{" NL field_decl { field_decl } "}" NL ;
+struct     ::= "struct" ident NL "{" NL field_decl { field_decl } { fn } "}" NL ;
 field_decl ::= type [ "mut" ] ident NL ;
 fn         ::= "fn" ident ":=" "(" [ type ident { "," type ident } ] ")" "->" type NL block ;
                                                   (* its block ends with exit *)
-statement  ::= declaration NL | assignment NL | if | while ;
+statement  ::= declaration NL | assignment NL | if | while | print NL ;
 declaration ::= type [ "mut" ] ident init ;
 init       ::= "{" value { "," value } "}" ;
 value      ::= expr | init ;                      (* an inner init only for a struct field *)
@@ -23,7 +22,12 @@ type       ::= "i32" | "i64" | "bool" | ident ;
 expr       ::= arith [ ( "==" | "!=" ) arith ] ;
 arith      ::= term { ( "+" | "-" ) term } ;
 term       ::= factor { "*" factor } ;
-factor     ::= number | "true" | "false" | ident | field | call | "!" factor ;
-field      ::= ident "." ident { "." ident } ;
-call       ::= ident "(" [ expr { "," expr } ] ")" ;
+factor     ::= number | "true" | "false" | postfix | "!" factor ;
+postfix    ::= ( ident [ arguments ] | "read" "(" ")" ) { "." ident [ arguments ] } ;
+arguments  ::= "(" [ expr { "," expr } ] ")" ;
+print      ::= "print" "(" ( string | expr ) ")" ;
+string     ::= '"' { ? any byte except '"' and newline; no escapes ? } '"' ;
+(* read and print are reserved names. A postfix '.' needs a struct result.
+   Calls are expressions, never standalone statements. Assignments have no
+   call in their target. Only print directly accepts string literals. *)
 NL         ::= ? boundary between the lexer's line vectors, or end of input ? ;

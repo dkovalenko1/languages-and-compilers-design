@@ -191,7 +191,6 @@ class ParserTests(unittest.TestCase):
             (b"if true\n{\n    struct P\n    exit 1\n}\nexit 0",
              "line 3:5: a struct can be declared only at the top level"),
             (b"fn f := () -> i32\n{\n    exit 1\n}\nf()\nexit 0", "line 5:1: a call is not a statement"),
-            (b"i32 a{g().x}\nexit a", "line 1:10: a field can be read from a variable, not from a call"),
             (b"i32 a{(1 + 2)}\nexit a", "line 1:7: expected a constant or a variable, got '('"),
             (b"struct P\n{\n}\nexit 0", "line 2:1: struct 'P' needs at least one field"),
             (b"fn f := () -> i32\n{\n    i32 a{1}\n}\nexit f()", "line 4:1: the body of 'f' must end with exit"),

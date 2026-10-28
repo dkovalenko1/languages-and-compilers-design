@@ -1,0 +1,35 @@
+struct Point
+{
+    i32 mut x
+    i32 mut y
+    fn moved := (i32 dx) -> Point
+    {
+        Point q{x + dx, y}
+        exit q
+    }
+    fn d2 := () -> i32
+    {
+        i32 r{x * x + y * y}
+        exit r
+    }
+    fn shift := (i32 dx) -> i32
+    {
+        x := x + dx
+        exit x
+    }
+}
+struct Wrap
+{
+    Point p
+}
+fn make := () -> Wrap
+{
+    print("once")
+    Wrap w{{10, 2}}
+    exit w
+}
+Point p{3, 4}
+print(p.moved(1).shift(5))
+print(make().p.shift(7))
+print(make().p.y)
+exit p.x

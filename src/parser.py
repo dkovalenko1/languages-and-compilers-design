@@ -10,6 +10,7 @@ from ast_nodes import (
     AssignNode, BinOpNode, BlockNode, BoolNode, CallNode, ConstNode, DeclNode,
     ExitNode, FieldDeclNode, FieldNode, FnNode, IfNode, InitNode, NotNode,
     ParamNode, ProgramNode, StructNode, VarNode, WhileNode,
+    MemberFnNode, MemberCallNode, PrintNode, ReadNode, StringNode,
 )
 from lexer import CompileError, Token
 
@@ -48,6 +49,8 @@ class Parser:
         token = self.peek()
         if token is None or token.kind != kind:
             raise self.error(message)
+        if kind == "ident" and token.text in ("read", "print"):
+            raise self.error(f"'{token.text}' is reserved")
         return self.eat()
 
     def finish_line(self):
@@ -81,9 +84,13 @@ class Parser:
             raise CompileError(tokens[0].line, tokens[0].column, "exit must be the last statement")
         return ProgramNode(1, 1, structs, functions, statements, exit_node)
 
-    def parse_statement(self):  # statement ::= decl | assign | if | while
+    def parse_statement(self):  # statement ::= decl | assign | if | while | print
         """Consume one line, or for an if or a while, every line up to the end of its last block."""
         token = self.next_line()[0]
+        if token.text == "print":
+            statement = self.parse_print()
+            self.finish_line()
+            return statement
         if token.kind == "if":
             return self.parse_if()
         if token.kind == "while":
@@ -164,7 +171,7 @@ class Parser:
         return BlockNode(brace.line, brace.column, statements, exit_node)
 
     def parse_struct(self) -> StructNode:
-        """struct ::= "struct" ident NL "{" NL field_decl { field_decl } "}" NL"""
+        """Fields precede optional member functions; at least one field is required."""
         self.next_line()
         keyword = self.eat()
         name = self.expect("ident", "expected a struct name after 'struct'")
@@ -179,13 +186,22 @@ class Parser:
         self.next_line()
         brace = self.eat()
         self.finish_line()
-        fields = []
+        fields, methods = [], []
         while True:
             tokens = self.peek_line()
             if tokens is None:
                 raise self.error("'{' is never closed", brace)
             if tokens[0].kind == "rbrace":
                 break
+            if tokens[0].kind == "fn":
+                if not fields:
+                    raise self.error("a member function must follow at least one field", tokens[0])
+                method = self.parse_fn(member=True)
+                method.owner = name.text
+                methods.append(method)
+                continue
+            if methods:
+                raise self.error("a field must precede member functions", tokens[0])
             self.next_line()  # field_decl ::= type [ "mut" ] ident NL
             type_token = self.parse_type("expected a field type")
             mutable = self.peek() is not None and self.peek().kind == "specifier"
@@ -200,9 +216,9 @@ class Parser:
         self.finish_line()
         if not fields:
             raise self.error(f"struct '{name.text}' needs at least one field", brace)
-        return StructNode(keyword.line, keyword.column, name.text, fields)
+        return StructNode(keyword.line, keyword.column, name.text, fields, methods)
 
-    def parse_fn(self) -> FnNode:
+    def parse_fn(self, member=False) -> FnNode:
         """fn ::= "fn" ident ":=" "(" [ type ident { "," type ident } ] ")" "->" type NL block"""
         self.next_line()
         self.eat()
@@ -223,7 +239,8 @@ class Parser:
         result = self.parse_type("expected the result type after '->'")
         self.finish_line()
         body = self.parse_block("fn", f"the body of '{name.text}' must end with exit")
-        return FnNode(name.line, name.column, name.text, params, result.text, body)
+        cls = MemberFnNode if member else FnNode
+        return cls(name.line, name.column, name.text, params, result.text, body)
 
     def parse_type(self, message: str) -> Token:  # type ::= "i32" | "i64" | "bool" | ident
         token = self.peek()
@@ -259,23 +276,39 @@ class Parser:
         self.expect("rbrace", "expected '}' after the initialiser")
         return InitNode(brace.line, brace.column, items)
 
-    def parse_assign(self) -> AssignNode:  # assign ::= ident { "." ident } ":=" expr
+    def parse_assign(self) -> AssignNode:
         name = self.eat()
-        if self.peek() is not None and self.peek().kind == "lparen":
-            raise self.error("a call is not a statement", name)
         target = self.parse_chain(name)
+        token = self.peek()
+        current = target
+        while isinstance(current, FieldNode):
+            current = current.base
+        if isinstance(current, CallNode):
+            if token is not None and token.kind == "assign":
+                raise self.error("cannot assign to a temporary call result", name)
+            raise self.error("a call is not a statement", name)
         self.expect("assign", f"expected ':=' after '{name.text}'")
         return AssignNode(name.line, name.column, name.text, target, self.parse_expr())
 
-    def parse_chain(self, name: Token):  # ident { "." ident }
-        node = VarNode(name.line, name.column, name.text)
+    def parse_chain(self, name: Token):
+        if name.text in ("read", "print"):
+            raise self.error(f"'{name.text}' is reserved", name)
+        node = (self.parse_call(name) if self.peek() is not None and self.peek().kind == "lparen"
+                else VarNode(name.line, name.column, name.text))
+        return self.parse_postfix(node)
+
+    def parse_postfix(self, node):
         while self.peek() is not None and self.peek().kind == "dot":
-            self.eat()
-            field = self.expect("ident", "expected a field name after '.'")
-            node = FieldNode(field.line, field.column, node, field.text)
+            dot = self.eat()
+            name = self.expect("ident", "expected a field or member function name after '.'")
+            if self.peek() is not None and self.peek().kind == "lparen":
+                node = self.parse_call(name, node)
+            else:
+                node = FieldNode(name.line, name.column, node, name.text)
+            node.dot_column = dot.column
         return node
 
-    def parse_call(self, name: Token) -> CallNode:  # call ::= ident "(" [ expr { "," expr } ] ")"
+    def parse_call(self, name: Token, receiver=None):
         self.eat()
         args = []
         if self.peek() is not None and self.peek().kind != "rparen":
@@ -285,9 +318,24 @@ class Parser:
                     break
                 self.eat()
         self.expect("rparen", "expected ',' or ')' after an argument")
-        if self.peek() is not None and self.peek().kind == "dot":
-            raise self.error("a field can be read from a variable, not from a call")
+        if receiver is not None:
+            return MemberCallNode(name.line, name.column, name.text, args, receiver)
         return CallNode(name.line, name.column, name.text, args)
+
+    def parse_print(self):
+        keyword = self.eat()
+        self.expect("lparen", "expected '(' after print")
+        if self.peek() is None or self.peek().kind == "rparen":
+            raise self.error("print takes exactly one argument", keyword)
+        if self.peek().kind == "string":
+            token = self.eat()
+            value = StringNode(token.line, token.column, token.text)
+        else:
+            value = self.parse_expr()
+        if self.peek() is not None and self.peek().kind == "comma":
+            raise self.error("print takes exactly one argument", keyword)
+        self.expect("rparen", "expected ')' after print argument")
+        return PrintNode(keyword.line, keyword.column, value)
 
     def parse_exit(self) -> ExitNode:
         keyword = self.eat()
@@ -328,9 +376,18 @@ class Parser:
             return ConstNode(token.line, token.column, token.text)
         if token.kind == "ident":
             self.eat()
-            if self.peek() is not None and self.peek().kind == "lparen":
-                return self.parse_call(token)
+            if token.text == "print":
+                raise self.error("print has no value", token)
+            if token.text == "read":
+                if self.peek() is None or self.peek().kind != "lparen":
+                    raise self.error("'read' is reserved", token)
+                call = self.parse_call(token)
+                if call.args:
+                    raise self.error("read takes no arguments", token)
+                return self.parse_postfix(ReadNode(token.line, token.column))
             return self.parse_chain(token)
+        if token.kind == "string":
+            raise self.error("a string literal is only allowed directly inside print")
         if token.kind == "boolean":
             self.eat()
             return BoolNode(token.line, token.column, token.text == "true")
