@@ -1,0 +1,36 @@
+struct Point
+{
+    i32 mut x
+    i32 mut y
+}
+struct Segment
+{
+    Point from
+    Point to
+}
+fn make := (i32 x, i32 y) -> Point
+{
+    Point p{x, y}
+    exit p
+}
+fn origin := () -> Point
+{
+    exit make(0, 0)
+}
+fn stretched := (Segment s, i32 k) -> Segment
+{
+    if k == 1
+    {
+        exit s
+    }
+    Point far{s.to.x * k, s.to.y * k}
+    Segment out{s.from, far}
+    exit out
+}
+Segment s{origin(), make(3, 4)}
+Segment same{stretched(s, 1)}
+Segment t{stretched(same, 10)}
+Point mut end{t.to}
+end := make(end.x + 1, end.y + 2)
+i32 result{end.x * 1000 + end.y + s.to.x + t.from.y}
+exit result

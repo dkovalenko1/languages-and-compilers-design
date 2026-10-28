@@ -1,0 +1,1 @@
+compilation error: line 6:9: a {} cannot initialise field 'Point.x' of type i32
