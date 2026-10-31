@@ -241,7 +241,10 @@ class Parser:
         return cls(name.line, name.column, name.text, params, result.text, body)
 
     def parse_lambda(self) -> LambdaNode:
-        """lambda ::= "fn" ident ":=" "[" [ ident { "," ident } ] "]" signature NL block"""
+        """lambda ::= "fn" ident ":=" "[" [ capture { "," capture } ] "]" signature NL block
+
+        capture ::= [ "mut" ] ident
+        """
         self.eat()
         name = self.eat()
         self.eat()
@@ -249,8 +252,11 @@ class Parser:
         captures = []
         if self.peek() is not None and self.peek().kind != "rbracket":
             while True:
+                mutable = self.peek() is not None and self.peek().kind == "specifier"
+                if mutable:
+                    self.eat()
                 capture = self.expect("ident", "expected the name of a captured variable")
-                captures.append(CaptureNode(capture.line, capture.column, capture.text, None, False))
+                captures.append(CaptureNode(capture.line, capture.column, capture.text, None, mutable))
                 if self.peek() is None or self.peek().kind != "comma":
                     break
                 self.eat()

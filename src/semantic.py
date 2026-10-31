@@ -184,7 +184,9 @@ class SemanticChecker:
         """Rewrite the lambda into a struct of its captures, its member 'call' and a variable.
 
         The body is checked as that member function, so it sees its parameters,
-        its locals, its captures (the fields) and the global functions.
+        its locals, its captures (the fields) and the global functions. A mut
+        capture is a mut field: assigning it makes call a mutating member, so
+        the closure variable is mut when any capture is.
         """
         names = set()
         for capture in node.captures:
@@ -215,7 +217,8 @@ class SemanticChecker:
         self.enclosing.pop()
         # The name is declared after the body, so the lambda cannot call itself.
         values = [VarNode(capture.line, capture.column, capture.name) for capture in node.captures]
-        node.decl = DeclNode(node.line, node.column, node.name, struct_name, False,
+        mutable = any(capture.mutable for capture in node.captures)
+        node.decl = DeclNode(node.line, node.column, node.name, struct_name, mutable,
                              InitNode(node.line, node.column, values), node.line, node.column)
         node.decl.accept(self)
 

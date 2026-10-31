@@ -407,7 +407,7 @@ class CaptureNode(FieldDeclNode):
 
     def label(self):
         if self.type_name is None:
-            return f"Capture {self.name}"
+            return f"Capture {'mut ' if self.mutable else ''}{self.name}"
         return f"Member {self.name} {self.type_name} {'mut' if self.mutable else 'const'}"
 
 

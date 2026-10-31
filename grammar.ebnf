@@ -11,9 +11,10 @@ field_decl ::= type [ "mut" ] ident NL ;
 fn         ::= "fn" ident ":=" "(" [ type ident { "," type ident } ] ")" "->" type NL block ;
                                                   (* its block ends with exit *)
 statement  ::= declaration NL | assignment NL | if | while | print NL | lambda ;
-lambda     ::= "fn" ident ":=" "[" [ ident { "," ident } ] "]"
+lambda     ::= "fn" ident ":=" "[" [ capture { "," capture } ] "]"
                "(" [ type ident { "," type ident } ] ")" "->" type NL block ;
                                                   (* its block ends with exit *)
+capture    ::= [ "mut" ] ident ;                  (* a copy; const unless mut *)
 declaration ::= type [ "mut" ] ident init ;
 init       ::= "{" value { "," value } "}" ;
 value      ::= expr | init ;                      (* an inner init only for a struct field *)
