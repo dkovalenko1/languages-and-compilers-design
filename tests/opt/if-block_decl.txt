@@ -1,0 +1,11 @@
+i32 mut n{0}
+if n == 0
+{
+    i32 inner{5}
+}
+while n != 2
+{
+    i32 step{1}
+    n := n + 1
+}
+exit n

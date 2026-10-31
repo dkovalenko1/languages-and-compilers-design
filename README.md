@@ -100,6 +100,51 @@ A program contains struct declarations, then global functions, then
 statements, and a final `exit`. See [grammar.ebnf](grammar.ebnf) for the
 complete grammar and [tests/ok](tests/ok) for runnable examples.
 
+## Optimizations
+
+`--remove-unused` runs one more pass on the checked tree, after the semantic
+checker and before code generation, so it only sees programs the checker
+accepted. The flag may stand anywhere on the command line:
+
+```sh
+python3 src/compiler.py --remove-unused tests/opt/fn_chain.txt output.ll
+python3 src/compiler.py --remove-unused --ast-checked tests/opt/warm-up_shadow.txt
+```
+
+The pass counts reads per declaration and calls per global function through
+the `decl` and `function` links the checker sets, so two variables named `x`
+have separate counts. It removes declarations nobody reads, with every
+assignment to them, and global functions nobody calls, with their bodies.
+Then it counts again, until a round removes nothing. A value that contains
+`read()` or a call of a function with an effect keeps its variable even
+with no reads. A function has an effect if it prints or reads, changes the
+object it is called on, may not return (it has a `while` or its calls come
+back to itself), or calls a function with an effect. Parameters, fields,
+member functions and lambdas are never removed.
+
+Counting has two limits:
+
+- A variable that only feeds itself, `k := k + 1` with no other reader,
+  stays: the right side reads it.
+- Functions that call only each other, or a recursive function nobody else
+  calls, never reach zero calls and stay. Reference counting cannot free a
+  cycle for the same reason.
+
+Who frees a removed subtree: the compiler is Python, run by CPython, which
+frees an object as soon as its reference count drops to zero and leaves
+cycles to a separate tracing collector. The pass unlinks a subtree by
+rebuilding the list that held it. Nodes keep no pointer to their parent, and
+the pass keeps `id()` numbers, not references. A removed subtree contains no
+cycle either, because a recursive function is never removed. Its count drops
+to zero and CPython frees it at once. With a parent pointer, every child and
+its parent would form a cycle, no count would reach zero, and only the cycle
+collector could free the subtree. Measured on the course VM (CPython 3.12.3)
+with `gc.disable()`: right after `remove_unused`, `weakref.ref(node)()`
+returns `None` for both removed declarations of `tests/opt/warm-up_chain.txt`
+and both removed functions of `tests/opt/fn_chain.txt`, before any
+`gc.collect()`. This is the compiler's memory. The compiled program has no
+heap, so nothing is freed in the binary.
+
 ## Testing
 
 ```sh
@@ -119,12 +164,20 @@ Clang and LLVM IR checks.
   specify `--ast` and `--ast-checked` output. Programs without `.in` receive empty stdin.
 - `tests/valid` and `tests/invalid`: earlier fixtures retained as regression
   tests, using `.out` and `.err` expectations.
+- `tests/opt/*.txt`: programs for `--remove-unused`. The output in
+  `.expected` must be the same with and without the flag; `.astc` holds the
+  `--remove-unused --ast-checked` output.
+
+`REMOVE_UNUSED=1 python3 check.py` compiles every earlier program with
+`--remove-unused`. The `.checked` snapshots show the tree before the pass,
+so they are skipped in that mode.
 
 ## Project layout
 
 - `src/lexer.py` — byte lexer and source-positioned tokens.
 - `src/parser.py` and `src/ast_nodes.py` — parser and syntax tree.
 - `src/semantic.py` — name resolution, type checking, and mutation analysis.
+- `src/optimizer.py` — the `--remove-unused` pass.
 - `src/compiler.py` — compiler CLI and LLVM IR generation.
 - `grammar.ebnf` — language grammar.
 - `check.py` and `tests/` — fixture runner and unit tests.

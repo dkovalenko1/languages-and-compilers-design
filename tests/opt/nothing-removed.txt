@@ -1,0 +1,57 @@
+struct Point
+{
+    i32 mut x
+    i32 mut y
+
+    fn sum := () -> i32
+    {
+        i32 s{x + y}
+        exit s
+    }
+}
+struct Adder
+{
+    i32 by
+
+    fn call := (i32 v) -> i32
+    {
+        i32 r{offset(v) + by}
+        exit r
+    }
+}
+fn offset := (i32 v) -> i32
+{
+    i32 r{v + 100}
+    exit r
+}
+fn sq := (i32 v) -> i32
+{
+    i32 r{v * v}
+    exit r
+}
+fn ping := (i32 n) -> i32
+{
+    exit pong(n)
+}
+fn pong := (i32 n) -> i32
+{
+    exit ping(n)
+}
+i32 x{1}
+i32 base{2}
+fn add := [base](i32 v) -> i32
+{
+    i32 r{sq(v) + base}
+    exit r
+}
+Point mut p{x, 3}
+i32 mut total{0}
+if true
+{
+    i32 x{10}
+    total := x + p.sum()
+}
+Adder plus{4}
+print(add(5))
+print(plus(1))
+exit total

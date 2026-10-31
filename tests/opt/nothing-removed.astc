@@ -1,0 +1,94 @@
+Program
+  Struct Point
+    FieldDecl x i32 mut
+    FieldDecl y i32 mut
+    MemberFn sum -> i32
+      Block
+        Decl s i32 const
+          BinOp +
+            Var x
+            Var y
+        Exit
+          Var s
+  Struct Adder
+    FieldDecl by i32 const
+    MemberFn call -> i32
+      Param v i32
+      Block
+        Decl r i32 const
+          BinOp +
+            Call offset
+              Var v
+            Var by
+        Exit
+          Var r
+  Fn offset (i32 v) -> i32
+    Block
+      Decl r i32 const
+        BinOp +
+          Var v
+          Const 100
+      Exit
+        Var r
+  Fn sq (i32 v) -> i32
+    Block
+      Decl r i32 const
+        BinOp *
+          Var v
+          Var v
+      Exit
+        Var r
+  Fn ping (i32 n) -> i32
+    Block
+      Exit
+        Call pong
+          Var n
+  Fn pong (i32 n) -> i32
+    Block
+      Exit
+        Call ping
+          Var n
+  Decl x i32 const
+    Const 1
+  Decl base i32 const
+    Const 2
+  Lambda add -> i32
+    Struct lambda.add
+      Member base i32 const
+      MemberFn call -> i32
+        Param v i32
+        Block
+          Decl r i32 const
+            BinOp +
+              Call sq
+                Var v
+              Var base
+          Exit
+            Var r
+    Decl add lambda.add const
+      Var base
+  Decl p Point mut
+    Var x
+    Const 3
+  Decl total i32 mut
+    Const 0
+  If
+    Bool true
+    Block
+      Decl x i32 const
+        Const 10
+      Assign total
+        BinOp +
+          Var x
+          MemberCall sum
+            Var p
+  Decl plus Adder const
+    Const 4
+  Print
+    CallableCall add
+      Const 5
+  Print
+    CallableCall plus
+      Const 1
+  Exit
+    Var total

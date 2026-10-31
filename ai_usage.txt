@@ -1,76 +1,76 @@
-Practice 8 AI usage log
+Practice 9 AI usage log
 
 Tool: Claude Code (Claude Opus 5.5) in T3 Code.
 Prompts, in order:
-- "Here is the new practice I need to complete. Please check it and tell me
-  what are the tasks and what should we do there." (w08-practice.pdf)
-- "Let's start with Task 1. Main now has all the latest work. Create a
-  branch and start; commit as you go. Follow the practice file
-  requirements. Report what you did and how you verified it."
-- "Implement the next task." (Task 2)
-- "Explain the test suite? How many did you add, and what do they cover?
-  Each should bring actual value, no slop." Follow-up: "Let's leave the
-  overlap if the practice file requires it. Cover the gaps you listed."
-- "Now implement the additional task, then update AI usage with this
-  week's entry."
+- "Check practice file CS400_Practice_9.pdf. Explain what are we doing,
+  what are the tasks?"
+- "Ok, I get it. You can start the implementation of task 1. Commit as you
+  go; verify your changes before that. If you add tests, make them focused;
+  they should bring real value, no slop. Report what you did and how you
+  verified it."
+- "Great, move to Task 2."
+- "Let's complete the additional task first, then we will cover the docs."
+- "Draft the Optimizations section in the README, and replace ai_usage with
+  this thread's entry. Do not commit; I'll review them first."
 
 What the AI wrote:
-- Branch practice-8 from main. Every test program, expected output and
-  the --ast-checked snapshot in tests/ok and tests/err for this practice:
-  13 successful and 24 rejected programs. The 12 Task 2 error programs are
-  the practice's program with one change each, so their line:column match
-  the practice file; the five messages the file quotes are used verbatim.
-- Task 1: the call rule in the semantic pass (a visible variable is a
-  callable object, otherwise a function; obj.field(args) likewise), the
-  rewrite into a member call on the same node, the four error kinds, and
-  --ast-checked in compiler.py.
-- Task 2: [ and ] tokens, the lambda statement in the parser, the rewrite
-  into a struct lambda.NAME, its member function call and a declaration
-  of the closure variable, the visibility rules of the body, and the
-  "type has no name" errors. Code generation emits lambda structs and
-  their functions with the others.
-- Additional task: [mut n] captures and the mut closure variable.
-- grammar.ebnf and README updates (--ast-checked, .checked fixtures).
-- All IR is built with llvmlite.ir; the only IR text is str(module).
+- Branch practice-9 from main. src/optimizer.py, the --remove-unused pass,
+  and the flag in compiler.py, which runs the pass after the checker.
+- Task 1: reads counted per declaration through the checker's decl links;
+  dead declarations removed with their assignments; repeated until a round
+  removes nothing.
+- Task 2: calls counted per global function in the same walk; dead
+  functions removed in the same loop.
+- Additional task: the set of functions with an effect (print or read(),
+  mutating, a while, recursion, or a call of such a function), computed as
+  a fixpoint over the call graph. It replaces Task 1's "any call keeps the
+  value" rule under the same flag.
+- check.py: a tests/opt suite (same output with and without the flag, and
+  the tree in .astc) and REMOVE_UNUSED=1, which runs every earlier program
+  with the flag.
+- tests/opt: 12 programs. The two warm-ups, the three-function chain and
+  the effects example are copied from the practice file. The others cover a
+  declaration in an if, values kept by a printing call and by read(),
+  assignment-only variables and field writes, a program where nothing is
+  removed, and the counter, relay, while/recursion and lambda effect cases.
+- README: the Optimizations section with both counting limits and the
+  memory note, and the tests/opt and REMOVE_UNUSED notes under Testing.
 
 What was changed or not taken as-is:
-- Practice rule change: the old error for a variable named like a function
-  was removed with its unit case, because the practice allows declaring
-  both and refuses only the call.
-- Call results are named call.ret and loads NAME.val, so the IR matches
-  the practice's excerpts. One old unit regex expected value names without
-  '.'; it was widened to accept %"b.val".
-- Load before getelementptr in an object declaration, to match the order
-  in the practice's output.ll excerpt.
-- Some first drafts of fixtures used syntax the language rejects (exit
-  with an expression, a struct without fields) or looped forever; they
-  were corrected before any commit, and each expected output was checked
-  by hand against the program.
-- Same-named lambdas in two functions first clashed in LLVM; the checker
-  now names the second struct lambda.NAME.2.
-- After the test-suite review, four fixtures were added for cases that had
-  only been tried by hand: lambda name reuse, a callable parameter, a
-  top-level variable inside a lambda in a function, and calling a capture
-  from outside the lambda. The overlapping declaration and assignment
-  error tests were kept because the practice lists both.
-- The AI first added a Co-Authored-By line to two local commits; it was
-  removed before pushing.
+- The practice's skeleton is a visitor class with a method per node type.
+  The pass uses one walk over children() instead, with two exceptions: the
+  receiver of c(5), which the tree dump leaves out, and the closure variable
+  a lambda declares, which is never removed. Without the second exception
+  the loop would never stop.
+- A first draft skipped lambda bodies when deciding whether the enclosing
+  function has an effect. No test could tell the two versions apart, and
+  counting the body only keeps more, so it was dropped for simpler code.
+- The first edge-case probe used exit v + cap, which the language rejects;
+  it was rewritten before any fixture was made.
+- The first memory measurement used a recursive function. It was never
+  removed (it calls itself, so its count stays at 1), so the note cites the
+  non-recursive removals instead, and the recursion case went into the
+  README as a counting limit.
 
-Verification on the Ubuntu 24.04 course VM (Python 3.12, llvmlite 0.49.0,
-LLVM 18 lli, opt and clang):
-- python check.py: 172/172 rows passed, every lli fixture plus 57 unit
-  tests with no skips, which also build every successful program natively
-  with clang. Before this practice the suite passed 135/135.
-- opt -passes=verify accepted all 77 successful fixture programs.
-- lli output of the three practice programs matches the file exactly:
-  42 42 14 10 Counter{n: 2} exit 12; 15 100 50 exit 11; 1 2 34 3 exit 0.
-  full_compiler.sh built and ran the Task 2 program natively with the
-  same output.
-- --ast-checked of the Task 2 program matches the excerpt in the file;
-  output.ll contains %"lambda.add_k" = type {i32}, @"lambda.add_k_call",
-  and the k.val load, add_k.0.ptr gep and stores of the excerpt.
-- triple(14) and triple.call(14) compile to the same call line.
-- The two demo errors report their line:column: 19:11 for the missing
-  capture and 13:14 for the lambda passed as an argument.
-- Fault check: with the lambda.NAME.2 renaming disabled, the same-name
-  fixture crashes with "lambda.h is already defined".
+Verification on the Ubuntu 24.04 course VM (Python 3.12.3, llvmlite 0.49.0,
+LLVM 18 lli and opt):
+- python check.py: 184/184 rows passed without the flag and with
+  REMOVE_UNUSED=1. Before this practice the suite passed 172/172.
+- opt -passes=verify accepted the --remove-unused output of all 89
+  successful programs in tests/ok, tests/valid and tests/opt.
+- --remove-unused --ast-checked of the second warm-up matches the tree in
+  the practice file. The chain exits with 4 both ways; without the flag
+  output.ll defines fn.twice, fn.helper, fn.unused and main, with it only
+  fn.twice and main.
+- The effects example removes 2, 1, 1 and 0 nodes in its four iterations,
+  as the file describes, and prints 5 and exits with 0 both ways. The
+  counter prints Counter{n: 1} with t kept and u removed.
+- Fault checks, each run against tests/opt and then reverted: without the
+  c(5) receiver read, nothing-removed crashes in code generation; without
+  walking field chains to their root, assign-only crashes in the pass;
+  without the caller rule effect_relay fails, without the mutating rule
+  effect_counter, without the recursion or the while rule
+  effect_may-not-return. A no-op control edit failed nothing.
+- Memory: with gc.disable(), weakref.ref(node)() returns None right after
+  the pass for the removed declarations of warm-up_chain and the removed
+  functions of fn_chain.

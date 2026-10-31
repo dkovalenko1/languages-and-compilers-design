@@ -9,6 +9,7 @@ import llvmlite.binding as llvm
 
 from ast_nodes import FieldNode, InitNode, FieldDeclNode, VarNode, ThisNode, StringNode, CallNode
 from lexer import CompileError, lex
+from optimizer import remove_unused
 from parser import Parser
 from semantic import SemanticChecker
 from terminal_output import print_error
@@ -25,6 +26,8 @@ def parse_args():
     parser.add_argument("--ast", action="store_true", help="Print the syntax tree without writing IR")
     parser.add_argument("--ast-checked", action="store_true",
                         help="Print the tree after the semantic pass without writing IR")
+    parser.add_argument("--remove-unused", action="store_true",
+                        help="Remove variables nobody reads, after the semantic pass")
     parser.add_argument("source", type=Path, help="Path to the source program")
     parser.add_argument("output", type=Path, nargs="?", help="Path to the output LLVM IR file")
     args = parser.parse_args()
@@ -376,6 +379,8 @@ def main():
             print(tree.dump())
             return 0
         tree.accept(SemanticChecker())
+        if args.remove_unused:  # Only a program the checker accepted is optimized.
+            remove_unused(tree)
         if args.ast_checked:
             print(tree.dump())
             return 0
