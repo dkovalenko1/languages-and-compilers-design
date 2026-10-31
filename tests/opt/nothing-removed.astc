@@ -17,10 +17,37 @@ Program
       Block
         Decl r i32 const
           BinOp +
-            Var v
+            Call offset
+              Var v
             Var by
         Exit
           Var r
+  Fn offset (i32 v) -> i32
+    Block
+      Decl r i32 const
+        BinOp +
+          Var v
+          Const 100
+      Exit
+        Var r
+  Fn sq (i32 v) -> i32
+    Block
+      Decl r i32 const
+        BinOp *
+          Var v
+          Var v
+      Exit
+        Var r
+  Fn ping (i32 n) -> i32
+    Block
+      Exit
+        Call pong
+          Var n
+  Fn pong (i32 n) -> i32
+    Block
+      Exit
+        Call ping
+          Var n
   Decl x i32 const
     Const 1
   Decl base i32 const
@@ -33,7 +60,8 @@ Program
         Block
           Decl r i32 const
             BinOp +
-              Var v
+              Call sq
+                Var v
               Var base
           Exit
             Var r

@@ -15,15 +15,33 @@ struct Adder
 
     fn call := (i32 v) -> i32
     {
-        i32 r{v + by}
+        i32 r{offset(v) + by}
         exit r
     }
+}
+fn offset := (i32 v) -> i32
+{
+    i32 r{v + 100}
+    exit r
+}
+fn sq := (i32 v) -> i32
+{
+    i32 r{v * v}
+    exit r
+}
+fn ping := (i32 n) -> i32
+{
+    exit pong(n)
+}
+fn pong := (i32 n) -> i32
+{
+    exit ping(n)
 }
 i32 x{1}
 i32 base{2}
 fn add := [base](i32 v) -> i32
 {
-    i32 r{v + base}
+    i32 r{sq(v) + base}
     exit r
 }
 Point mut p{x, 3}
