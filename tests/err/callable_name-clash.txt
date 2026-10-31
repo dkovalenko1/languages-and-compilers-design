@@ -1,0 +1,16 @@
+struct Twice
+{
+    i32 k
+    fn call := (i32 v) -> i32
+    {
+        i32 r{v * k}
+        exit r
+    }
+}
+fn twice := (i32 v) -> i32
+{
+    i32 r{v + v}
+    exit r
+}
+Twice twice{2}
+exit twice(4)
