@@ -5,9 +5,13 @@ tests/ok, tests/valid    compile, run with lli, compare stdout with .expected / 
                          a .checked file with --ast-checked
 tests/err, tests/invalid compilation must fail with the stderr in .expected / .err
                          and must not write the output file
+tests/opt                the output in .expected must be the same with and without
+                         --remove-unused; .astc holds --remove-unused --ast-checked
 Then the unit tests in tests/ run once and add one row.
 
 Exit status 0 only when every row passes. LLI=/path/to/lli overrides the tool.
+REMOVE_UNUSED=1 compiles every earlier program with --remove-unused; the
+.checked snapshots, which show the tree before the pass, are skipped then.
 """
 
 import os
@@ -22,14 +26,7 @@ ROOT = Path(__file__).resolve().parent
 COMPILER = ROOT / "src" / "compiler.py"
 TESTS = ROOT / "tests"
 LLI = os.environ.get("LLI", "lli")
-
-# (directory, should compile, expected-output suffix)
-SUITES = [
-    ("ok", True, ".expected"),
-    ("valid", True, ".out"),
-    ("err", False, ".expected"),
-    ("invalid", False, ".err"),
-]
+FLAGS = ["--remove-unused"] if os.environ.get("REMOVE_UNUSED") else []
 
 
 def run(command, timeout=60, input=None):
@@ -40,10 +37,10 @@ def compiler(*args):
     return run([sys.executable, "-B", str(COMPILER), *args])
 
 
-def check_valid(source: Path, expected: Path, directory: Path) -> str | None:
+def check_valid(source: Path, expected: Path, directory: Path, flags=FLAGS) -> str | None:
     """Return None when the program passes, or a one-line reason."""
     output = directory / "output.ll"
-    result = compiler(str(source), str(output))
+    result = compiler(*flags, str(source), str(output))
     if result.returncode != 0:
         return "did not compile: " + result.stderr.strip()
     try:
@@ -62,14 +59,14 @@ def check_valid(source: Path, expected: Path, directory: Path) -> str | None:
         if dumped.stdout != tree.read_text():
             return "--ast differs from " + tree.name
     checked = source.with_suffix(".checked")
-    if checked.exists() and compiler("--ast-checked", str(source)).stdout != checked.read_text():
+    if not flags and checked.exists() and compiler("--ast-checked", str(source)).stdout != checked.read_text():
         return "--ast-checked differs from " + checked.name
     return None
 
 
 def check_invalid(source: Path, expected: Path, directory: Path) -> str | None:
     output = directory / "output.ll"
-    result = compiler(str(source), str(output))
+    result = compiler(*FLAGS, str(source), str(output))
     if result.returncode == 0:
         return "compiled, but must be rejected"
     if output.exists():
@@ -77,6 +74,26 @@ def check_invalid(source: Path, expected: Path, directory: Path) -> str | None:
     if result.stderr != expected.read_text():
         return "reported " + result.stderr.strip()
     return None
+
+
+def check_opt(source: Path, expected: Path, directory: Path) -> str | None:
+    for flags in ([], ["--remove-unused"]):
+        if (reason := check_valid(source, expected, directory, flags)) is not None:
+            return f"{' '.join(flags) or 'without the flag'}: {reason}"
+    tree = compiler("--remove-unused", "--ast-checked", str(source)).stdout
+    if tree != source.with_suffix(".astc").read_text():
+        return "--remove-unused --ast-checked differs from " + source.stem + ".astc"
+    return None
+
+
+# (directory, check, expected-output suffix)
+SUITES = [
+    ("ok", check_valid, ".expected"),
+    ("valid", check_valid, ".out"),
+    ("err", check_invalid, ".expected"),
+    ("invalid", check_invalid, ".err"),
+    ("opt", check_opt, ".expected"),
+]
 
 
 def first_line(path: Path) -> str:
@@ -89,11 +106,10 @@ def main() -> int:
         print(f"check.py: '{LLI}' not found; install LLVM or set LLI", file=sys.stderr)
         return 2
     rows, failures = [], 0
-    for name, valid, suffix in SUITES:
+    for name, check, suffix in SUITES:
         for source in sorted((TESTS / name).glob("*.txt")):
             expected = source.with_suffix(suffix)
             with tempfile.TemporaryDirectory() as directory:
-                check = check_valid if valid else check_invalid
                 reason = check(source, expected, Path(directory))
             failures += reason is not None
             detail = first_line(expected) if reason is None else reason

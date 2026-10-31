@@ -1,0 +1,11 @@
+fn loud := (i32 a) -> i32
+{
+    print(a)
+    exit a
+}
+i32 shown{loud(1)}
+i32 mut later{0}
+later := loud(2)
+i32 consumed{read()}
+i32 second{read()}
+exit second

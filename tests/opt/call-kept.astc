@@ -1,0 +1,21 @@
+Program
+  Fn loud (i32 a) -> i32
+    Block
+      Print
+        Var a
+      Exit
+        Var a
+  Decl shown i32 const
+    Call loud
+      Const 1
+  Decl later i32 mut
+    Const 0
+  Assign later
+    Call loud
+      Const 2
+  Decl consumed i32 const
+    Read
+  Decl second i32 const
+    Read
+  Exit
+    Var second

@@ -1,0 +1,37 @@
+Program
+  Struct Point
+    FieldDecl x i32 mut
+    FieldDecl y i32 mut
+  Fn twice (i32 a) -> i32
+    Block
+      Decl r i32 const
+        BinOp +
+          Var a
+          Var a
+      Exit
+        Var r
+  Decl seed i32 const
+    Const 3
+  Lambda scaled -> i32
+    Struct lambda.scaled
+      Member seed i32 const
+      MemberFn call -> i32
+        Param v i32
+        Block
+          Decl r i32 const
+            BinOp *
+              Var v
+              Var seed
+          Exit
+            Var r
+    Decl scaled lambda.scaled const
+      Var seed
+  Decl k i32 mut
+    Const 0
+  Assign k
+    BinOp +
+      Var k
+      Const 1
+  Exit
+    Call twice
+      Const 2
