@@ -1,0 +1,13 @@
+fn loud := [](i32 v) -> i32
+{
+    print(v)
+    exit v
+}
+fn silent := [](i32 v) -> i32
+{
+    i32 r{v + 1}
+    exit r
+}
+i32 a{loud(1)}
+i32 b{silent(2)}
+exit 0

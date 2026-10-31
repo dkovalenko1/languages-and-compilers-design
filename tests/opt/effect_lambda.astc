@@ -1,0 +1,28 @@
+Program
+  Lambda loud -> i32
+    Struct lambda.loud
+      MemberFn call -> i32
+        Param v i32
+        Block
+          Print
+            Var v
+          Exit
+            Var v
+    Decl loud lambda.loud const
+  Lambda silent -> i32
+    Struct lambda.silent
+      MemberFn call -> i32
+        Param v i32
+        Block
+          Decl r i32 const
+            BinOp +
+              Var v
+              Const 1
+          Exit
+            Var r
+    Decl silent lambda.silent const
+  Decl a i32 const
+    CallableCall loud
+      Const 1
+  Exit
+    Const 0
