@@ -1,0 +1,1 @@
+compilation error: line 15:12: cannot call 'clock.ticks': its 'call' changes it, and it is not mut

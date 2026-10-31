@@ -1,0 +1,16 @@
+i32 n{10}
+fn up := [mut n]() -> i32
+{
+    n := n + 1
+    exit n
+}
+fn down := [mut n]() -> i32
+{
+    n := n - 1
+    exit n
+}
+print(up())
+print(up())
+print(down())
+print(n)
+exit up()

@@ -1,0 +1,4 @@
+16
+Clock{ticks: Counter{n: 16}}
+11
+Program exit with result 64

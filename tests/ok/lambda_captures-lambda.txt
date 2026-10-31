@@ -1,0 +1,23 @@
+i32 base{5}
+fn plus := [base](i32 v) -> i32
+{
+    i32 r{base + v}
+    exit r
+}
+fn twice := [plus](i32 v) -> i32
+{
+    i32 r{plus(plus(v))}
+    exit r
+}
+fn outer := [base, twice](i32 v) -> i32
+{
+    fn inner := [v, base](i32 w) -> i32
+    {
+        i32 r{v * w + base}
+        exit r
+    }
+    i32 r{inner(3) + twice(0)}
+    exit r
+}
+print(twice(1))
+exit outer(2)

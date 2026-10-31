@@ -1,0 +1,1 @@
+compilation error: line 23:10: 'add_k' is a lambda and cannot initialise 'copy': its type has no name

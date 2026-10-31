@@ -10,9 +10,15 @@ from ast_nodes import (
     AssignNode, BinOpNode, BlockNode, BoolNode, CallNode, ConstNode, DeclNode,
     ExitNode, FieldDeclNode, FieldNode, FnNode, IfNode, InitNode, NotNode,
     ParamNode, ProgramNode, StructNode, VarNode, WhileNode,
-    MemberFnNode, MemberCallNode, PrintNode, ReadNode, StringNode,
+    MemberFnNode, MemberCallNode, PrintNode, ReadNode, StringNode, CaptureNode, LambdaNode,
 )
 from lexer import CompileError, Token
+
+
+def is_lambda(tokens: list[Token]) -> bool:
+    """A line that starts with fn name := [ declares a lambda."""
+    return (len(tokens) > 3 and tokens[0].kind == "fn" and tokens[1].kind == "ident"
+            and tokens[2].kind == "assign" and tokens[3].kind == "lbracket")
 
 
 class Parser:
@@ -67,7 +73,7 @@ class Parser:
                     after = "a statement" if statements else "a function"
                     raise CompileError(first.line, first.column, f"struct declared after {after}")
                 structs.append(self.parse_struct())
-            elif first.kind == "fn":
+            elif first.kind == "fn" and not is_lambda(tokens):
                 if statements:
                     raise CompileError(first.line, first.column, "function declared after a statement")
                 functions.append(self.parse_fn())
@@ -84,7 +90,7 @@ class Parser:
             raise CompileError(tokens[0].line, tokens[0].column, "exit must be the last statement")
         return ProgramNode(1, 1, structs, functions, statements, exit_node)
 
-    def parse_statement(self):  # statement ::= decl | assign | if | while | print
+    def parse_statement(self):  # statement ::= decl | assign | if | while | print | lambda
         """Consume one line, or for an if or a while, every line up to the end of its last block."""
         token = self.next_line()[0]
         if token.text == "print":
@@ -95,6 +101,8 @@ class Parser:
             return self.parse_if()
         if token.kind == "while":
             return self.parse_while()
+        if is_lambda(self.tokens):
+            return self.parse_lambda()
         if token.kind == "type":
             statement = self.parse_decl()
         elif token.kind == "ident" and len(self.tokens) > 1 and self.tokens[1].kind in ("ident", "specifier"):
@@ -194,6 +202,8 @@ class Parser:
             if tokens[0].kind == "rbrace":
                 break
             if tokens[0].kind == "fn":
+                if is_lambda(tokens):
+                    raise self.error("a member function cannot have a capture list", tokens[3])
                 if not fields:
                     raise self.error("a member function must follow at least one field", tokens[0])
                 method = self.parse_fn(member=True)
@@ -224,6 +234,40 @@ class Parser:
         self.eat()
         name = self.expect("ident", "expected a function name after 'fn'")
         self.expect("assign", f"expected ':=' after 'fn {name.text}'")
+        params, result = self.parse_signature()
+        self.finish_line()
+        body = self.parse_block("fn", f"the body of '{name.text}' must end with exit")
+        cls = MemberFnNode if member else FnNode
+        return cls(name.line, name.column, name.text, params, result.text, body)
+
+    def parse_lambda(self) -> LambdaNode:
+        """lambda ::= "fn" ident ":=" "[" [ capture { "," capture } ] "]" signature NL block
+
+        capture ::= [ "mut" ] ident
+        """
+        self.eat()
+        name = self.eat()
+        self.eat()
+        self.eat()
+        captures = []
+        if self.peek() is not None and self.peek().kind != "rbracket":
+            while True:
+                mutable = self.peek() is not None and self.peek().kind == "specifier"
+                if mutable:
+                    self.eat()
+                capture = self.expect("ident", "expected the name of a captured variable")
+                captures.append(CaptureNode(capture.line, capture.column, capture.text, None, mutable))
+                if self.peek() is None or self.peek().kind != "comma":
+                    break
+                self.eat()
+        self.expect("rbracket", "expected ',' or ']' after a capture")
+        params, result = self.parse_signature()
+        self.finish_line()
+        body = self.parse_block("fn", f"the body of '{name.text}' must end with exit")
+        return LambdaNode(name.line, name.column, name.text, captures, params, result.text, body)
+
+    def parse_signature(self):
+        """signature ::= "(" [ type ident { "," type ident } ] ")" "->" type"""
         self.expect("lparen", "expected '(' before the parameters")
         params = []
         if self.peek() is not None and self.peek().kind != "rparen":
@@ -237,10 +281,7 @@ class Parser:
         self.expect("rparen", "expected ',' or ')' after a parameter")
         self.expect("arrow", "expected '->' and the result type after ')'")
         result = self.parse_type("expected the result type after '->'")
-        self.finish_line()
-        body = self.parse_block("fn", f"the body of '{name.text}' must end with exit")
-        cls = MemberFnNode if member else FnNode
-        return cls(name.line, name.column, name.text, params, result.text, body)
+        return params, result
 
     def parse_type(self, message: str) -> Token:  # type ::= "i32" | "i64" | "bool" | ident
         token = self.peek()

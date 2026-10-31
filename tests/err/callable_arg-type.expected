@@ -1,0 +1,1 @@
+compilation error: line 11:13: argument 1 of 'triple' must be i32, got bool

@@ -1,4 +1,5 @@
-(* Practice 7 grammar: structs, global/member functions, I/O and call chains.
+(* Practice 8 grammar: structs, global/member functions, I/O, call chains,
+   callable objects and lambdas.
    The lexer returns one token vector per line. NL is the boundary between
    vectors (or the end of the final vector); it is not a stored Token. Blank
    lines may stand anywhere and carry nothing. '{', '}' and 'else' stand alone
@@ -9,7 +10,11 @@ struct     ::= "struct" ident NL "{" NL field_decl { field_decl } { fn } "}" NL 
 field_decl ::= type [ "mut" ] ident NL ;
 fn         ::= "fn" ident ":=" "(" [ type ident { "," type ident } ] ")" "->" type NL block ;
                                                   (* its block ends with exit *)
-statement  ::= declaration NL | assignment NL | if | while | print NL ;
+statement  ::= declaration NL | assignment NL | if | while | print NL | lambda ;
+lambda     ::= "fn" ident ":=" "[" [ capture { "," capture } ] "]"
+               "(" [ type ident { "," type ident } ] ")" "->" type NL block ;
+                                                  (* its block ends with exit *)
+capture    ::= [ "mut" ] ident ;                  (* a copy; const unless mut *)
 declaration ::= type [ "mut" ] ident init ;
 init       ::= "{" value { "," value } "}" ;
 value      ::= expr | init ;                      (* an inner init only for a struct field *)
@@ -28,6 +33,7 @@ arguments  ::= "(" [ expr { "," expr } ] ")" ;
 print      ::= "print" "(" ( string | expr ) ")" ;
 string     ::= '"' { ? any byte except '"' and newline; no escapes ? } '"' ;
 (* read and print are reserved names. A postfix '.' needs a struct result.
+   name(args) on a variable whose struct declares call is name.call(args).
    Calls are expressions, never standalone statements. Assignments have no
    call in their target. Only print directly accepts string literals. *)
 NL         ::= ? boundary between the lexer's line vectors, or end of input ? ;

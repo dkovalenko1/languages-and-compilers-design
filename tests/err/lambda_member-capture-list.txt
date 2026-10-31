@@ -1,0 +1,9 @@
+struct Box
+{
+    i32 size
+    fn grow := [size](i32 by) -> i32
+    {
+        exit by
+    }
+}
+exit 0

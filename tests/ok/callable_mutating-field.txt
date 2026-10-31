@@ -1,0 +1,34 @@
+struct Counter
+{
+    i32 mut n
+    fn call := (i32 step) -> i32
+    {
+        n := n + step
+        exit n
+    }
+}
+struct Clock
+{
+    Counter mut ticks
+    fn tick := () -> i32
+    {
+        i32 t{ticks(1)}
+        exit t
+    }
+}
+fn twice := (i32 v) -> i32
+{
+    i32 r{v * 2}
+    exit r
+}
+fn quad := (i32 v) -> i32
+{
+    i32 r{twice(twice(v))}
+    exit r
+}
+Clock mut clock{{10}}
+i32 twice{clock.tick()}
+print(clock.ticks(5))
+print(clock)
+print(twice)
+exit quad(clock.ticks.n)

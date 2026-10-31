@@ -1,0 +1,15 @@
+struct Box
+{
+    i32 size
+    fn grow := (i32 by) -> i32
+    {
+        fn step := [by]() -> i32
+        {
+            i32 r{size + by}
+            exit r
+        }
+        i32 r{step()}
+        exit r
+    }
+}
+exit 0

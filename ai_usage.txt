@@ -1,82 +1,76 @@
-Practice 7 AI usage log
+Practice 8 AI usage log
 
-Tool: Codex (gpt-6.1-sol) in T3 Code.
-Prompts: explain w07-practice.pdf; design a compact test suite and its file
-requirements; implement tests before code, commit after each verified step,
-then report verification and submission readiness.
+Tool: Claude Code (Claude Opus 5.5) in T3 Code.
+Prompts, in order:
+- "Here is the new practice I need to complete. Please check it and tell me
+  what are the tasks and what should we do there." (w08-practice.pdf)
+- "Let's start with Task 1. Main now has all the latest work. Create a
+  branch and start; commit as you go. Follow the practice file
+  requirements. Report what you did and how you verified it."
+- "Implement the next task." (Task 2)
+- "Explain the test suite? How many did you add, and what do they cover?
+  Each should bring actual value, no slop." Follow-up: "Let's leave the
+  overlap if the practice file requires it. Cover the gaps you listed."
+- "Now implement the additional task, then update AI usage with this
+  week's entry."
 
-Tests-first step:
-- Read the supplied PDF and the existing parser, semantic checker, LLVM
-  generator and both runners. Created practice-7 from the clean practice-6.
-- Authored 12 successful and 10 rejected fixtures, including the two main
-  PDF examples and the optional result-46 example. Expected outputs and
-  source positions were derived from the programs before implementation.
-- Added parameterized name, typing, mutation, built-in and string checks,
-  an independently authored AST snapshot, and focused IR assertions.
-- Updated both runners to pass neighboring .in input or empty stdin.
-- Superseded the previous parser rejection of fields after calls because
-  this practice implements the optional task. Other previous tests remain.
-- AI-generated test sources are retained after manual source/expectation
-  review. The tests-first commit intentionally specified functionality not
-  yet present and failed until the implementation step.
+What the AI wrote:
+- Branch practice-8 from main. Every test program, expected output and
+  the --ast-checked snapshot in tests/ok and tests/err for this practice:
+  13 successful and 24 rejected programs. The 12 Task 2 error programs are
+  the practice's program with one change each, so their line:column match
+  the practice file; the five messages the file quotes are used verbatim.
+- Task 1: the call rule in the semantic pass (a visible variable is a
+  callable object, otherwise a function; obj.field(args) likewise), the
+  rewrite into a member call on the same node, the four error kinds, and
+  --ast-checked in compiler.py.
+- Task 2: [ and ] tokens, the lambda statement in the parser, the rewrite
+  into a struct lambda.NAME, its member function call and a declaration
+  of the closure variable, the visibility rules of the body, and the
+  "type has no name" errors. Code generation emits lambda structs and
+  their functions with the others.
+- Additional task: [mut n] captures and the mut closure variable.
+- grammar.ebnf and README updates (--ast-checked, .checked fixtures).
+- All IR is built with llvmlite.ir; the only IR text is str(module).
 
-Implementation and review:
-- Retained the AI-authored member AST nodes, postfix parser, field-aware
-  name lookup, deferred fixed-point mutation analysis, pointer receiver
-  code generation, read/print and optional temporary call chains after
-  source review and the tests below. All instructions use llvmlite.ir;
-  the output is str(module). No IR instructions are assembled from strings.
-- Adjusted the initial implementation during review: separate LLVM context
-  per compilation; unique generated symbols for underscore ambiguities;
-  clearer separate duplicate-member/field-collision diagnostics; explicit
-  raw-NUL printing through %c between safe %s chunks.
-- Added two focused unit checks discovered in that review: arbitrary string
-  bytes including NUL and non-UTF8, and ambiguous generated method names.
-  Added the implicit mutating-call-through-const-field variant to the
-  existing mutation table. No additional fixture programs were needed.
-- Updated grammar.ebnf with the current language grammar. The initial
-  README update included semantics, fixture conventions and demonstration
-  commands; it was subsequently replaced by the landing page described below.
+What was changed or not taken as-is:
+- Practice rule change: the old error for a variable named like a function
+  was removed with its unit case, because the practice allows declaring
+  both and refuses only the call.
+- Call results are named call.ret and loads NAME.val, so the IR matches
+  the practice's excerpts. One old unit regex expected value names without
+  '.'; it was widened to accept %"b.val".
+- Load before getelementptr in an object declaration, to match the order
+  in the practice's output.ll excerpt.
+- Some first drafts of fixtures used syntax the language rejects (exit
+  with an expression, a struct without fields) or looped forever; they
+  were corrected before any commit, and each expected output was checked
+  by hand against the program.
+- Same-named lambdas in two functions first clashed in LLVM; the checker
+  now names the second struct lambda.NAME.2.
+- After the test-suite review, four fixtures were added for cases that had
+  only been tried by hand: lambda name reuse, a callable parameter, a
+  top-level variable inside a lambda in a function, and calling a capture
+  from outside the lambda. The overlapping declaration and assignment
+  error tests were kept because the practice lists both.
+- The AI first added a Co-Authored-By line to two local commits; it was
+  removed before pushing.
 
-Verification before the implementation commit:
-- Tests-first VM run: all 112 old fixtures passed; the 22 new fixtures and
-  new feature assertions failed on the previous compiler, as intended.
-- Final Ubuntu 24.04 course VM run, llvmlite 0.49.0 / LLVM 18:
-  /home/ubuntu/lcd/bin/python check.py: 135/135 rows passed, including
-  57 unit tests with no skips. Both lli and clang execution paths passed.
-- opt -passes=verify accepted all 64 successful fixture programs.
-- The required --ast nodes and Point_shift pointer/GEP/load/add/store were
-  checked; opt -passes=mem2reg,verify accepted the member example.
-- lli produced 83 for Task 1, the exact Task 3 stdout with input 3 4, and
-  46 for the additional task. Both teacher-demo errors matched their exact
-  line:column expectations. full_compiler.sh built and ran the I/O example
-  natively with the same complete output.
-- macOS temporary environment with pinned llvmlite: 57 unit tests passed,
-  with 2 existing lli/opt-dependent tests skipped (those ran in the VM).
-- Two temporary deliberate-fault checks confirmed test value: passing a
-  copied receiver produced 67 rather than the expected 83; disabling
-  transitive mutation propagation incorrectly accepted the const cyclic
-  caller. Neither deliberate fault was retained in the source.
-- git diff --check passed.
-
-The work is committed locally on practice-7. Pushing, opening the PR into
-main with vovaskochko as reviewer, and showing the teacher remain submission
-actions; no PR has been opened by this session.
-
-Documentation follow-up:
-- User prompt: "README is a landing page, not the log of what we did.
-  Please clean it up, we should not have two segments for two practices
-  in in." Follow-up prompt: "update ai-usage".
-- Codex rewrote README as one landing page for the current compiler, with
-  setup, usage, a runnable language example, supported features, test-file
-  conventions and project layout. Removed the separate practice sections,
-  implementation history, grading/demo checklist and submission instructions.
-- Retained the AI-authored rewrite after checking every Markdown link and
-  referenced fixture path. Compiled the embedded example with llvmlite,
-  verified its LLVM IR, built it with Clang and checked its exact stdout:
-  5; Point{x: 5, y: 4}; Program exit with result 5 (each on its own line).
-- README cleanup was committed as 73b24b5. No compiler code changed, so the
-  full compiler suite was not rerun for that documentation-only edit.
-- Preserved the user's removal of the previous Practice 6 AI usage section.
-  Updated this log to record the README follow-up and make tests-first
-  wording historical. Reviewed the diff and ran git diff --check.
+Verification on the Ubuntu 24.04 course VM (Python 3.12, llvmlite 0.49.0,
+LLVM 18 lli, opt and clang):
+- python check.py: 172/172 rows passed, every lli fixture plus 57 unit
+  tests with no skips, which also build every successful program natively
+  with clang. Before this practice the suite passed 135/135.
+- opt -passes=verify accepted all 77 successful fixture programs.
+- lli output of the three practice programs matches the file exactly:
+  42 42 14 10 Counter{n: 2} exit 12; 15 100 50 exit 11; 1 2 34 3 exit 0.
+  full_compiler.sh built and ran the Task 2 program natively with the
+  same output.
+- --ast-checked of the Task 2 program matches the excerpt in the file;
+  output.ll contains %"lambda.add_k" = type {i32}, @"lambda.add_k_call",
+  and the k.val load, add_k.0.ptr gep and stores of the excerpt.
+- triple(14) and triple.call(14) compile to the same call line.
+- The two demo errors report their line:column: 19:11 for the missing
+  capture and 13:14 for the lambda passed as an argument.
+- Fault check: with the lambda.NAME.2 renaming disabled, the same-name
+  fixture crashes with "lambda.h is already defined".

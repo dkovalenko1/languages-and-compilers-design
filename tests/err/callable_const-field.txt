@@ -1,0 +1,15 @@
+struct Counter
+{
+    i32 mut n
+    fn call := () -> i32
+    {
+        n := n + 1
+        exit n
+    }
+}
+struct Clock
+{
+    Counter ticks
+}
+Clock mut clock{{0}}
+exit clock.ticks()

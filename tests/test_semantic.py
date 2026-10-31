@@ -142,8 +142,6 @@ class SemanticTests(unittest.TestCase):
              "line 5:4: function 'f' is declared twice"),
             (b"fn f := (i32 a, bool a) -> i32\n{\n    exit 1\n}\nexit f(1, true)",
              "line 1:22: parameter 'a' is declared twice"),
-            (b"fn f := () -> i32\n{\n    exit 1\n}\ni32 f{1}\nexit f",
-             "line 5:5: 'f' is already the name of a function"),
             (point + b"P p{1, true}\nexit p.x",
              "line 6:8: cannot initialise field 'P.y' of type i32 with a value of type bool"),
             (point + b"P p{1}\nexit p.x", "line 6:4: 'P' has 2 fields, but 1 value is given"),

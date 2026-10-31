@@ -1,0 +1,27 @@
+i32 total{0}
+fn add := [mut total](i32 v) -> i32
+{
+    total := total + v
+    exit total
+}
+i32 mut i{1}
+i32 mut last{0}
+while i != 5
+{
+    last := add(i)
+    i := i + 1
+}
+fn drain := [mut last]() -> i32
+{
+    i32 mut steps{0}
+    while last != 0
+    {
+        last := last - 5
+        steps := steps + 1
+    }
+    exit steps
+}
+print(last)
+print(drain())
+print(last)
+exit total
