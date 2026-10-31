@@ -316,9 +316,10 @@ class CallNode(ExprNode):
     name: str
     args: list[ExprNode]
     function: FnNode | None = field(default=None, init=False, repr=False)
+    callable: bool = field(default=False, init=False, repr=False)  # Rewritten into name.call(args).
 
     def label(self):
-        return f"Call {self.name}"
+        return f"{'CallableCall' if self.callable else 'Call'} {self.name}"
 
     def children(self):
         return tuple(self.args)
@@ -358,7 +359,7 @@ class MemberCallNode(CallNode):
     dot_column: int | None = field(default=None, init=False, repr=False)
 
     def label(self):
-        return f"MemberCall {self.name}"
+        return f"{'CallableCall' if self.callable else 'MemberCall'} {self.name}"
 
     def children(self):
         return (self.receiver, *self.args)

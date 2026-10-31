@@ -21,17 +21,21 @@ FN_PREFIX = "fn."  # '.' cannot appear in a source name, so no prefixed name mee
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="LLVM Compiler for practice 7")
+    parser = argparse.ArgumentParser(description="LLVM Compiler for practice 8")
     parser.add_argument("--ast", action="store_true", help="Print the syntax tree without writing IR")
+    parser.add_argument("--ast-checked", action="store_true",
+                        help="Print the tree after the semantic pass without writing IR")
     parser.add_argument("source", type=Path, help="Path to the source program")
     parser.add_argument("output", type=Path, nargs="?", help="Path to the output LLVM IR file")
     args = parser.parse_args()
-    if args.ast:
+    if args.ast or args.ast_checked:
+        if args.ast and args.ast_checked:
+            parser.error("--ast and --ast-checked cannot be combined")
         if args.output is not None:
-            parser.error("--ast takes only a source path")
+            parser.error("--ast and --ast-checked take only a source path")
         return args
     if args.output is None:
-        parser.error("the output .ll path is required unless --ast is used")
+        parser.error("the output .ll path is required unless --ast or --ast-checked is used")
     if args.output.suffix != ".ll":
         parser.error("Output file must have a .ll extension")
     if args.source.resolve() == args.output.resolve():
@@ -284,7 +288,7 @@ class CodeGen:
         receiver = [self.address(node.receiver)] if node.function.owner else []
         args = [self.coerce(arg.accept(self), arg.type, param.type_name)
                 for arg, param in zip(node.args, node.function.params)]
-        return self.builder.call(self.functions[id(node.function)], receiver + args)
+        return self.builder.call(self.functions[id(node.function)], receiver + args, name="call.ret")
 
     def visit_member_call(self, node):
         return self.visit_call(node)
@@ -366,6 +370,9 @@ def main():
             print(tree.dump())
             return 0
         tree.accept(SemanticChecker())
+        if args.ast_checked:
+            print(tree.dump())
+            return 0
         module = tree.accept(CodeGen())
         # Open the output only after the entire tree passed validation.
         args.output.write_text(str(module), encoding="utf-8")
