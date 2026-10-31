@@ -1,0 +1,21 @@
+struct Box
+{
+    i32 mut size
+    fn grow := (i32 by) -> i32
+    {
+        if by != 0
+        {
+            fn step := [size, by](i32 times) -> i32
+            {
+                i32 r{size + by * times}
+                exit r
+            }
+            size := step(2)
+        }
+        exit size
+    }
+}
+Box mut b{3}
+print(b.grow(4))
+print(b)
+exit b.grow(0)

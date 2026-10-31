@@ -1,7 +1,8 @@
 """Run every fixture program through the compiler and lli, and print a table.
 
 tests/ok, tests/valid    compile, run with lli, compare stdout with .expected / .out;
-                         a .ast file next to the program is compared with --ast
+                         a .ast file next to the program is compared with --ast,
+                         a .checked file with --ast-checked
 tests/err, tests/invalid compilation must fail with the stderr in .expected / .err
                          and must not write the output file
 Then the unit tests in tests/ run once and add one row.
@@ -60,6 +61,9 @@ def check_valid(source: Path, expected: Path, directory: Path) -> str | None:
         dumped = compiler("--ast", str(source))
         if dumped.stdout != tree.read_text():
             return "--ast differs from " + tree.name
+    checked = source.with_suffix(".checked")
+    if checked.exists() and compiler("--ast-checked", str(source)).stdout != checked.read_text():
+        return "--ast-checked differs from " + checked.name
     return None
 
 

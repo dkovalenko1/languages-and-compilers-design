@@ -1,0 +1,9 @@
+i32 k{1}
+if k == 1
+{
+    fn add := (i32 y) -> i32
+    {
+        exit y
+    }
+}
+exit k
