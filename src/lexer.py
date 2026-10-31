@@ -16,6 +16,7 @@ SINGLE_BYTE = {
     ord("{"): "lbrace", ord("}"): "rbrace",
     ord("+"): "plus", ord("*"): "star",
     ord("."): "dot", ord(","): "comma", ord("("): "lparen", ord(")"): "rparen",
+    ord("["): "lbracket", ord("]"): "rbracket",
 }
 
 

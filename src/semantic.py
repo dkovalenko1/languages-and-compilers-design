@@ -1,7 +1,8 @@
 """Resolve names and check types before any LLVM IR is constructed."""
 
 from ast_nodes import (ConstNode, DeclNode, FieldNode, InitNode, ParamNode, path,
-                       FieldDeclNode, ThisNode, VarNode, CallNode, ReadNode, StringNode)
+                       FieldDeclNode, ThisNode, VarNode, CallNode, ReadNode, StringNode,
+                       CaptureNode, LambdaNode, MemberFnNode, StructNode)
 from lexer import CompileError
 
 
@@ -31,6 +32,10 @@ class SemanticChecker:
         self.function = None  # The FnNode whose body is checked, or None at the top level.
         self.member_calls = []  # (caller, call), validated after mutation reaches a fixed point.
         self.top_level_names = set()  # Only for a clearer error inside a function.
+        self.lambdas = []  # The struct of every lambda, in declaration order.
+        # One entry per lambda whose body is being checked: (name, scopes, function)
+        # of the place where it is declared. Only for clearer errors.
+        self.enclosing = []
 
     def fail(self, node, message):
         raise CompileError(node.line, node.column, message)
@@ -50,9 +55,37 @@ class SemanticChecker:
         """Resolve a use to the innermost declaration of its name."""
         if (decl := self.find(node.name)) is not None:
             return decl
+        self.not_captured(node)
         if self.function is not None and node.name in self.top_level_names:
-            self.fail(node, f"variable '{node.name}' is not visible inside function '{self.function.name}'")
+            self.fail(node, f"variable '{node.name}' is not visible inside {self.where()}")
         self.fail(node, f"variable '{node.name}' is used before its declaration")
+
+    def where(self):
+        """The function whose body is checked, as an error names it."""
+        if self.function.lambda_name is not None:
+            return f"lambda '{self.function.lambda_name}'"
+        return f"function '{self.function.name}'"
+
+    def not_captured(self, node):
+        """Fail if a lambda body uses a name visible where the lambda is declared."""
+        if not self.enclosing or self.function.lambda_name is None:
+            return
+        name, scopes, function = self.enclosing[-1]
+        inside = self.scopes, self.function
+        self.scopes, self.function = scopes, function
+        visible = self.find(node.name) is not None
+        self.scopes, self.function = inside
+        if visible:
+            self.fail(node, f"'{node.name}' is not captured by lambda '{name}': "
+                            f"add it to the capture list, [{node.name}]")
+
+    def is_lambda(self, type_name):
+        return type_name in self.structs and self.structs[type_name].name.startswith("lambda.")
+
+    def no_name(self, expr, action, reason="its type has no name"):
+        """A lambda's type has no name, so it can only be called."""
+        if self.is_lambda(expr.type):
+            self.fail(expr, f"'{path(expr)}' is a lambda and {action}: {reason}")
 
     def check_type(self, type_name: str, node, line=None, column=None):
         if type_name not in BUILTINS and type_name not in self.structs:
@@ -62,6 +95,7 @@ class SemanticChecker:
         have = expr.type
         if have == want or (have == "i32" and want == "i64"):
             return
+        self.no_name(expr, f"cannot {action}")
         if isinstance(expr, ConstNode) and have == "i64" and want == "i32":
             self.fail(expr, f"constant {expr.value} does not fit in i32")
         self.fail(at, f"cannot {action} of type {want} with a value of type {have}")
@@ -77,7 +111,7 @@ class SemanticChecker:
         return None
 
     def visit_program(self, node):
-        self.top_level_names = {s.name for s in node.statements if isinstance(s, DeclNode)}
+        self.top_level_names = {s.name for s in node.statements if isinstance(s, (DeclNode, LambdaNode))}
         for struct in node.structs:
             struct.accept(self)
         # Every signature is known before any body, so a body may call a
@@ -99,6 +133,7 @@ class SemanticChecker:
         for statement in node.statements:
             statement.accept(self)
         node.exit.accept(self)
+        node.lambdas = self.lambdas
         # Propagate receiver effects, including cycles, after checking every body.
         changed = True
         while changed:
@@ -135,14 +170,54 @@ class SemanticChecker:
         self.structs[node.name] = node
 
     def visit_fn(self, node):
-        outer_scopes, self.scopes, self.function = self.scopes, [{}], node
+        outer_scopes, outer_function = self.scopes, self.function
+        self.scopes, self.function = [{}], node
         frame = self.scopes[0]
         for param in node.params:
             if param.name in frame:
                 self.fail(param, f"parameter '{param.name}' is declared twice")
             frame[param.name] = param
         node.body.accept(self)
-        self.scopes, self.function = outer_scopes, None
+        self.scopes, self.function = outer_scopes, outer_function
+
+    def visit_lambda(self, node):
+        """Rewrite the lambda into a struct of its captures, its member 'call' and a variable.
+
+        The body is checked as that member function, so it sees its parameters,
+        its locals, its captures (the fields) and the global functions.
+        """
+        names = set()
+        for capture in node.captures:
+            if capture.name in names:
+                self.fail(capture, f"'{capture.name}' is captured twice")
+            names.add(capture.name)
+            decl = self.find(capture.name)
+            if decl is None:
+                self.fail(capture, f"cannot capture '{capture.name}': no variable '{capture.name}' is visible here")
+            capture.type_name = decl.type_name
+        for param in node.params:
+            if param.name in names:
+                self.fail(param, f"parameter '{param.name}' has the name of a capture of lambda '{node.name}'")
+            self.check_type(param.type_name, param)
+        self.check_type(node.result_type, node)
+        # '.' cannot appear in a declared name, so lambda.* never meets a struct of the program.
+        struct_name, number = f"lambda.{node.name}", 1
+        while struct_name in self.structs:
+            number += 1
+            struct_name = f"lambda.{node.name}.{number}"
+        call = MemberFnNode(node.line, node.column, "call", node.params, node.result_type, node.body)
+        call.owner, call.lambda_name = struct_name, node.name
+        node.struct = StructNode(node.line, node.column, struct_name, node.captures, [call])
+        self.structs[struct_name] = node.struct
+        self.lambdas.append(node.struct)
+        self.enclosing.append((node.name, self.scopes, self.function))
+        call.accept(self)
+        self.enclosing.pop()
+        # The name is declared after the body, so the lambda cannot call itself.
+        values = [VarNode(capture.line, capture.column, capture.name) for capture in node.captures]
+        node.decl = DeclNode(node.line, node.column, node.name, struct_name, False,
+                             InitNode(node.line, node.column, values), node.line, node.column)
+        node.decl.accept(self)
 
     def visit_block(self, node):
         self.scopes.append({})
@@ -217,6 +292,8 @@ class SemanticChecker:
         """Every link of the chain must be mut: the variable and each field on the way."""
         target = node.target
         target.accept(self)
+        if self.is_lambda(target.type):
+            self.fail(node, f"cannot assign to '{path(target)}': it is a lambda, and its type has no name")
         links = []
         while isinstance(target, FieldNode):
             links.append(target)
@@ -225,6 +302,9 @@ class SemanticChecker:
             self.fail(node, "cannot assign to a temporary call result")
         root = target.decl
         written = path(node.target)
+        if isinstance(root, CaptureNode) and not root.mutable:
+            self.fail(node, f"cannot assign to '{written}': the capture '{root.name}' is const, "
+                            f"write [mut {root.name}]")
         if isinstance(root, FieldDeclNode):
             self.function.mutating = True
         if isinstance(root, ParamNode):
@@ -244,11 +324,11 @@ class SemanticChecker:
 
     def visit_exit(self, node):
         have = node.value.accept(self)
+        self.no_name(node.value, "cannot be the value of exit")
         if self.function is not None:
             want = self.function.result_type
             if not (have == want or (have == "i32" and want == "i64")):
-                self.fail(node.value, f"function '{self.function.name}' must exit with {want}, "
-                                      f"got {have}")
+                self.fail(node.value, f"{self.where()} must exit with {want}, got {have}")
         elif have not in BUILTINS:
             self.fail(node.value, f"the program must exit with i32, i64 or bool, got {have}")
 
@@ -281,6 +361,8 @@ class SemanticChecker:
     def visit_field(self, node):
         """Find the field's index here, so the code generator never looks a name up."""
         base = node.base.accept(self)
+        if self.is_lambda(base):
+            self.fail(node, f"'{path(node.base)}' is a lambda: its captures are not visible outside its body")
         struct = self.structs.get(base)
         if struct is None:
             if self.temporary(node.base):
@@ -303,7 +385,9 @@ class SemanticChecker:
 
     def visit_call(self, node):
         """The call rule: a visible variable is a callable object, otherwise a function."""
-        function = self.member(self.function.owner, node.name) if self.function and self.function.owner else None
+        # A lambda body sees only the global functions, not the members of any struct.
+        function = (self.member(self.function.owner, node.name)
+                    if self.function and self.function.owner and self.function.lambda_name is None else None)
         if self.find(node.name) is not None:
             if function is not None or node.name in self.functions:
                 self.fail(node, f"'{node.name}' is both a variable and a function: rename one of them")
@@ -318,8 +402,11 @@ class SemanticChecker:
         else:
             node.function = self.functions.get(node.name)
         if node.function is None:
+            self.not_captured(node)
+            if any(name == node.name for name, _, _ in self.enclosing):
+                self.fail(node, f"lambda '{node.name}' cannot call itself: its name is declared after its body")
             if self.function is not None and node.name in self.top_level_names:
-                self.fail(node, f"variable '{node.name}' is not visible inside function '{self.function.name}'")
+                self.fail(node, f"variable '{node.name}' is not visible inside {self.where()}")
             self.fail(node, f"unknown function '{node.name}'")
         return self.check_arguments(node)
 
@@ -349,6 +436,8 @@ class SemanticChecker:
                                    f"call result of type {type_name} is not a struct")
             self.fail(node, f"type {type_name} has no member functions")
         struct = self.structs[type_name]
+        if self.is_lambda(type_name) and node.name != "call":
+            self.fail(node, f"'{path(receiver)}' is a lambda: its captures are not visible outside its body")
         for index, field in enumerate(struct.fields):
             if field.name == node.name:  # obj.name(args) on a field is obj.name.call(args).
                 link = FieldNode(node.line, node.column, receiver, node.name)
@@ -370,6 +459,8 @@ class SemanticChecker:
                             f"but {len(node.args)} {'is' if len(node.args) == 1 else 'are'} given")
         for number, (arg, param) in enumerate(zip(node.args, function.params), start=1):
             have = arg.accept(self)
+            self.no_name(arg, f"cannot be passed to '{name}'",
+                         "its type has no name, so no parameter can have it")
             if not (have == param.type_name or (have == "i32" and param.type_name == "i64")):
                 self.fail(arg, f"argument {number} of '{name}' must be {param.type_name}, got {have}")
         node.type = function.result_type
@@ -414,6 +505,7 @@ class SemanticChecker:
     def visit_print(self, node):
         if not isinstance(node.value, StringNode):
             node.value.accept(self)
+            self.no_name(node.value, "cannot be printed")
 
     def visit_const(self, node):
         digits = node.value.lstrip("0") or "0"

@@ -42,6 +42,7 @@ class ProgramNode(Node):
     functions: list["FnNode"]
     statements: list[StmtNode]
     exit: "ExitNode"
+    lambdas: list["StructNode"] = field(default_factory=list, init=False, repr=False)  # Set by the checker.
 
     def label(self):
         return "Program"
@@ -99,6 +100,7 @@ class FnNode(Node):
     body: "BlockNode"
     owner: str | None = field(default=None, init=False, repr=False)
     mutating: bool = field(default=False, init=False)
+    lambda_name: str | None = field(default=None, init=False, repr=False)  # The call of a lambda.
 
     def label(self):
         params = ", ".join(f"{param.type_name} {param.name}" for param in self.params)
@@ -397,3 +399,41 @@ class PrintNode(StmtNode):
 
     def accept(self, visitor):
         return visitor.visit_print(self)
+
+
+@dataclass
+class CaptureNode(FieldDeclNode):
+    """A name in a lambda's capture list; the checker gives it a type and makes it a field."""
+
+    def label(self):
+        if self.type_name is None:
+            return f"Capture {self.name}"
+        return f"Member {self.name} {self.type_name} {'mut' if self.mutable else 'const'}"
+
+
+@dataclass
+class LambdaNode(StmtNode):
+    """fn name := [captures](params) -> type, declared where a statement stands.
+
+    The checker rewrites it into a struct with one field per capture, its member
+    function call, and a declaration of the closure variable.
+    """
+
+    name: str
+    captures: list[CaptureNode]
+    params: list[ParamNode]
+    result_type: str
+    body: BlockNode
+    struct: StructNode | None = field(default=None, init=False, repr=False)
+    decl: DeclNode | None = field(default=None, init=False, repr=False)
+
+    def label(self):
+        return f"Lambda {self.name} -> {self.result_type}"
+
+    def children(self):
+        if self.decl is not None:
+            return (self.struct, self.decl)
+        return (*self.captures, *self.params, self.body)
+
+    def accept(self, visitor):
+        return visitor.visit_lambda(self)

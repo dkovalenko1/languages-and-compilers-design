@@ -135,7 +135,7 @@ class CompilerTests(unittest.TestCase):
 
     def test_if_else_branches_on_the_condition(self):
         ir_text = self.compiled_ir(FIXTURES / "ok" / "if-else_example.txt")
-        self.assertRegex(ir_text, r'br i1 %"?\.?\w+"?, label %"then", label %"else"')
+        self.assertRegex(ir_text, r'br i1 %"?[\w.]+"?, label %"then", label %"else"')
         self.assertEqual(ir_text.count('br label %"merge"'), 2)
 
     def test_while_has_condition_body_end_and_a_back_edge(self):

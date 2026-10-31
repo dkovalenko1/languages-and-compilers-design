@@ -33,6 +33,13 @@ python3 src/compiler.py --ast tests/ok/practice7_members.txt
 ./full_compiler.sh tests/ok/practice7_members.txt
 ```
 
+`--ast-checked` prints the tree after the semantic pass, where a lambda is
+already rewritten into a struct, its member function `call` and a variable:
+
+```sh
+python3 src/compiler.py --ast-checked tests/ok/practice8_lambda.txt
+```
+
 Programs using `read()` take integers from standard input:
 
 ```sh
@@ -108,8 +115,8 @@ Clang and LLVM IR checks.
   complete stdout, including the final exit message.
 - `tests/err/*.txt`: rejected programs; `.expected` files hold stderr with
   line and column positions.
-- Optional `.in` files supply stdin; optional `.ast` files specify `--ast`
-  output. Programs without `.in` receive empty stdin.
+- Optional `.in` files supply stdin; optional `.ast` and `.checked` files
+  specify `--ast` and `--ast-checked` output. Programs without `.in` receive empty stdin.
 - `tests/valid` and `tests/invalid`: earlier fixtures retained as regression
   tests, using `.out` and `.err` expectations.
 

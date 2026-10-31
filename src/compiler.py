@@ -47,7 +47,7 @@ class CodeGen:
     """Emit IR from a checked tree, with no source-language validation."""
 
     def __init__(self):
-        self.module = ir.Module(name="practice7", context=ir.Context())
+        self.module = ir.Module(name="practice8", context=ir.Context())
         self.module.triple = llvm.get_default_triple()
         self.types = dict(TYPES)  # Source type name -> LLVM type; structs are added in order.
         self.field_types = {}  # Struct name -> its fields' source type names, by index.
@@ -106,11 +106,12 @@ class CodeGen:
         return value
 
     def visit_program(self, node):
-        for struct in node.structs:
+        # A lambda's struct follows the program's structs and every lambda it captures.
+        for struct in [*node.structs, *node.lambdas]:
             struct.accept(self)
         # Every function exists in the module before any body is built, so
         # a call may refer to a function defined below it.
-        functions = [fn for struct in node.structs for fn in struct.methods] + node.functions
+        functions = [fn for struct in [*node.structs, *node.lambdas] for fn in struct.methods] + node.functions
         for fn in functions:
             parameters = [self.types[param.type_name] for param in fn.params]
             if fn.owner:
@@ -199,8 +200,10 @@ class CodeGen:
             # An object is filled field by field through a gep at the field's index.
             fields = self.field_types[node.type_name]
             for index, item in enumerate(init.items):
-                address = self.builder.gep(slot, [ZERO, ir.Constant(I32, index)], inbounds=True)
-                self.builder.store(self.init_value(item, fields[index]), address)
+                value = self.init_value(item, fields[index])
+                address = self.builder.gep(slot, [ZERO, ir.Constant(I32, index)], inbounds=True,
+                                           name=f"{node.name}.{index}.ptr")
+                self.builder.store(value, address)
         self.slots[id(node)] = slot
 
     def init_value(self, item, type_name: str):
@@ -273,7 +276,10 @@ class CodeGen:
         return self.builder.not_(node.operand.accept(self))
 
     def visit_var(self, node):
-        return self.builder.load(self.address(node))
+        return self.builder.load(self.address(node), name=node.name + ".val")
+
+    def visit_lambda(self, node):
+        node.decl.accept(self)  # The struct and its call are emitted with the others.
 
     def visit_field(self, node):
         base = node.base
