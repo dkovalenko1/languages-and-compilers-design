@@ -1,0 +1,16 @@
+struct Scale
+{
+    i32 k
+    fn call := (i32 v) -> i32
+    {
+        i32 r{v * k}
+        exit r
+    }
+}
+fn use := (Scale sc) -> i32
+{
+    i32 r{sc(4)}
+    exit r
+}
+Scale t{5}
+exit use(t)

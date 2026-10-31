@@ -1,0 +1,12 @@
+fn f := (i32 a) -> i32
+{
+    fn h := [a]() -> i32
+    {
+        i32 r{top}
+        exit r
+    }
+    i32 r{h()}
+    exit r
+}
+i32 top{1}
+exit 0

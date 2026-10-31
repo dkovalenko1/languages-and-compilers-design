@@ -1,0 +1,1 @@
+compilation error: line 5:15: variable 'top' is not visible inside lambda 'h'
